@@ -1,6 +1,12 @@
 [theme]
-base = "light"
-primaryColor = "#2563eb"
-backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f3f4f6"
-textColor = "#111827"
+font = "'Work Sans':https://fonts.googleapis.com/css2?family=Work+Sans:wght@300;400;500;600;700&display=swap"
+baseRadius = "12px"
+primaryColor = "#3b82f6"
+backgroundColor = "#0f172a"
+secondaryBackgroundColor = "#1e293b"
+textColor = "#f8fafc"
+
+[theme.sidebar]
+backgroundColor = "#0f172a"
+textColor = "#f1f5f9"
+secondaryBackgroundColor = "#1e293b"

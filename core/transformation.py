@@ -3,25 +3,62 @@ import unicodedata
 
 import pandas as pd
 
+from core.anonymisation import anonymiser
 from core.exceptions import SchemaError
 
 
 LOGGER = logging.getLogger(__name__)
 
+# ── Mapping Directeur → Pôle (source : cahier des charges) ────────────────
+# GAVOILLE, Laurent : ambiguite dans les donnees juin 2026.
+# Le rapport officiel classe son ticket Kram en E&T et son ticket Megrine en supports.
+DIRECTEUR_POLE: dict[str, str] = {
+    "MASMOUDI, Oussema": "BBS",
+    "MAROUFI, Walid":    "E&T",
+    "SAMANDI, Sami":     "AVS",
+    "BEN ABDALLAH, Mehdi": "supports",
+    "JANNOT, Christian": "supports",
+    "BEN SALAH, Naoufel": "BBS",
+    "GAVOILLE, Laurent": "supports",
+}
+
+EXCLUDED_SERVICE_CATEGORIES = {
+    "on boarding sst/krm",
+    "off boarding",
+    "materiel avs",
+}
+
+OFFICIAL_POLES = {"avs", "bbs", "e&t", "supports"}
+
+
+def directeur_vers_pole(directeur: str) -> str:
+    """Retourne le pôle correspondant au directeur, ou 'Non déterminé' si inconnu."""
+    if not directeur or directeur == "Non renseigne":
+        return "Non déterminé"
+    return DIRECTEUR_POLE.get(directeur.strip(), "Non déterminé")
+
 TICKET_REQUIRED_ALIASES = {
     "ticket_id": ["ticket_id", "id ticket", "n ticket", "numero ticket", "ticket"],
     "beneficiaire": ["beneficiaire", "demandeur", "utilisateur"],
     "beneficiaire_id": ["beneficiaire id", "login", "matricule"],
+    "directeur": ["directeur"],
     "date_ouverture": ["date ouverture", "date d ouverture", "enregistre le", "date de creation"],
     "date_fermeture": ["date fermeture", "date de cloture", "date cloture", "date de resolution", "date resolution"],
     "categorie": ["categorie", "sujet", "subject", "type"],
     "priorite": ["priorite", "priority"],
+    "e_reponses": ["e reponses", "e_reponses"],
+    "description": ["description"],
+    "vip_level": ["beneficiaire niveau de vip", "niveau de vip"],
     "site": ["site", "localisation", "beneficiaire localisation"],
+    "group_lng": ["group lng"],
+    "groupe_resolu": ["resolu par groupe"],
     "groupe_traitant": ["groupe courant", "resolu par groupe", "group lng", "groupe traitant"],
     "intervenant": ["resolu par intervenant", "intervenant"],
+    "group_lng_resolution": ["group lng 1"],
     "statut": ["meta statut", "statut", "etat", "status"],
     "statut_detail": ["statut ticket"],
     "delai_source": ["delai de resolution min", "delai resolution min", "delai de resolution"],
+    "workflow": ["workflow"],
 }
 
 TICKET_REQUIRED = [
@@ -32,20 +69,32 @@ TICKET_REQUIRED = [
 TICKET_OPTIONAL_DEFAULTS = {
     "beneficiaire": "Non renseigne",
     "beneficiaire_id": "",
+    "directeur": "Non renseigne",
     "date_fermeture": pd.NaT,
     "categorie": "Donnee indisponible",
-    "site": "Donnee indisponible",
-    "statut": "Donnee indisponible",
     "priorite": pd.NA,
+    "e_reponses": "",
+    "description": "",
+    "vip_level": "",
+    "site": "Donnee indisponible",
+    "group_lng": "",
+    "groupe_resolu": "Donnee indisponible",
     "groupe_traitant": "Donnee indisponible",
     "intervenant": "Donnee indisponible",
+    "group_lng_resolution": "",
+    "statut": "Donnee indisponible",
     "statut_detail": pd.NA,
     "delai_source": pd.NA,
+    "workflow": "",
 }
 
 SATISFACTION_ALIASES = {
     "ticket_id": ["ticket_id", "id ticket", "n ticket", "numero ticket", "ticket"],
     "date_enquete": ["date de creation", "date creation", "date enquete"],
+    "date_resolution": ["date de resolution", "date resolution"],
+    "groupe_resolu": ["resolu par groupe"],
+    "intervenant": ["resolu par intervenant", "intervenant"],
+    "categorie": ["sujet", "categorie", "subject", "type"],
     "satisfaction_traitement": ["satisfaction de traitement", "note traitement", "notes par criteres"],
     "communication_operateurs": ["communication des operateurs", "note communication"],
     "satisfaction_temps": ["satisfaction du temps de traitement", "note temps traitement", "note delai"],
@@ -138,7 +187,7 @@ def validate_tickets_source(raw: pd.DataFrame) -> dict[str, object]:
     return validate_source_columns(
         raw,
         TICKET_REQUIRED_ALIASES,
-        ["date_ouverture", "date_fermeture", "site"],
+        TICKET_REQUIRED,
     )
 
 
@@ -174,7 +223,7 @@ def detect_source_type(raw: pd.DataFrame) -> dict[str, object]:
             score += 10
         if name == "employes" and {"beneficiaire_id", "beneficiaire"}.issubset(set(found)):
             score += 10
-        if name == "demandes" and {"date_ouverture", "date_fermeture", "site"}.issubset(set(found)):
+        if name == "demandes" and set(TICKET_REQUIRED).issubset(set(found)):
             score += 8
         scores[name] = score
     detected = max(scores, key=scores.get)
@@ -231,7 +280,17 @@ def parse_duration_minutes(series: pd.Series) -> pd.Series:
     return result
 
 
+def _is_informative_text(value: object) -> bool:
+    key = normalize_text(value)
+    return bool(key and key not in {"nan", "-", "non renseigne", "non determine"})
+
+
+def _is_official_pole(value: object) -> bool:
+    return normalize_text(value) in OFFICIAL_POLES
+
+
 def standardize_tickets(raw: pd.DataFrame) -> pd.DataFrame:
+    raw = anonymiser(raw)  # ← suppression immédiate des colonnes sensibles
     df = _rename_with_aliases(raw, TICKET_REQUIRED_ALIASES)
     column_sources = df.attrs.get("column_sources", {})
     _require_columns(df, TICKET_REQUIRED, "tickets")
@@ -250,12 +309,15 @@ def standardize_tickets(raw: pd.DataFrame) -> pd.DataFrame:
     df["statut"] = df["statut"].map(normalize_status)
     df["site"] = df["site"].fillna("Non renseigne").astype(str).str.strip().replace("", "Non renseigne")
     df["categorie"] = df["categorie"].fillna("Non renseigne").astype(str).str.strip().replace("", "Non renseigne")
+    df = df[~df["categorie"].map(normalize_text).isin(EXCLUDED_SERVICE_CATEGORIES)].copy()
     df["priorite"] = parse_number(df["priorite"])
+    for col in ["directeur", "e_reponses", "description", "vip_level", "group_lng", "groupe_resolu", "group_lng_resolution", "workflow"]:
+        df[col] = df[col].fillna("").astype(str).str.strip()
     df["groupe_traitant"] = df["groupe_traitant"].fillna("Non renseigne").astype(str).str.strip()
     df["intervenant"] = df["intervenant"].fillna("Non renseigne").astype(str).str.strip()
     df["statut_detail"] = df["statut_detail"].fillna("").astype(str).str.strip()
 
-    df = df.dropna(subset=["date_ouverture"]).copy()
+    df = df.dropna(subset=["date_ouverture"]).drop_duplicates("ticket_id", keep="last").copy()
     df["mois_ouverture"] = df["date_ouverture"].dt.to_period("M").astype(str)
     df["mois_fermeture"] = df["date_fermeture"].dt.to_period("M").astype(str)
     df.loc[df["date_fermeture"].isna(), "mois_fermeture"] = pd.NA
@@ -275,6 +337,7 @@ def standardize_satisfaction(raw: pd.DataFrame) -> pd.DataFrame:
     if raw.empty:
         return pd.DataFrame(columns=["ticket_id", "satisfaction", "communication", "satisfaction_temps"])
 
+    raw = anonymiser(raw)  # ← suppression immédiate des colonnes sensibles
     df = _rename_with_aliases(raw, SATISFACTION_ALIASES)
     column_sources = df.attrs.get("column_sources", {})
     _require_columns(df, ["ticket_id"], "satisfaction")
@@ -284,11 +347,18 @@ def standardize_satisfaction(raw: pd.DataFrame) -> pd.DataFrame:
             df[col] = pd.NA
     if "date_enquete" not in df.columns:
         df["date_enquete"] = pd.NaT
+    if "date_resolution" not in df.columns:
+        df["date_resolution"] = pd.NaT
+    for col in ["groupe_resolu", "intervenant", "categorie"]:
+        if col not in df.columns:
+            df[col] = ""
 
     df["ticket_id"] = df["ticket_id"].astype(str).str.strip()
     df["date_enquete"] = parse_dates(df["date_enquete"])
-    df["mois_enquete"] = df["date_enquete"].dt.to_period("M").astype(str)
-    df.loc[df["date_enquete"].isna(), "mois_enquete"] = pd.NA
+    df["date_resolution"] = parse_dates(df["date_resolution"])
+    month_source = df["date_resolution"].where(df["date_resolution"].notna(), df["date_enquete"])
+    df["mois_enquete"] = month_source.dt.to_period("M").astype(str)
+    df.loc[month_source.isna(), "mois_enquete"] = pd.NA
     df["satisfaction_traitement"] = parse_number(df["satisfaction_traitement"])
     df["communication_operateurs"] = parse_number(df["communication_operateurs"])
     df["satisfaction_temps"] = parse_number(df["satisfaction_temps"])
@@ -300,6 +370,10 @@ def standardize_satisfaction(raw: pd.DataFrame) -> pd.DataFrame:
         [
             "ticket_id",
             "date_enquete",
+            "date_resolution",
+            "groupe_resolu",
+            "intervenant",
+            "categorie",
             "mois_enquete",
             "satisfaction",
             "satisfaction_traitement",
@@ -313,10 +387,18 @@ def standardize_satisfaction(raw: pd.DataFrame) -> pd.DataFrame:
 
 def standardize_employees(raw: pd.DataFrame) -> pd.DataFrame:
     if raw.empty:
-        return pd.DataFrame(columns=["beneficiaire_id", "fonction", "localisation_employe", "department", "manager", "directeur"])
+        return pd.DataFrame(columns=["beneficiaire_id", "fonction", "localisation_employe", "department", "manager", "directeur", "pole"])
 
+    # Renommer d'abord (pour récupérer beneficiaire_id / directeur),
+    # puis anonymiser uniquement les colonnes non encore standardisées.
     df = _rename_with_aliases(raw, EMPLOYEE_ALIASES)
     column_sources = df.attrs.get("column_sources", {})
+    # Supprimer les colonnes sensibles brutes qui ne sont pas encore renommées
+    # (les colonnes déjà renommées en beneficiaire_id / directeur sont conservées).
+    colonnes_brutes_restantes = [c for c in df.columns if c not in EMPLOYEE_ALIASES]
+    df_anon = anonymiser(df[colonnes_brutes_restantes].copy())
+    df = pd.concat([df[[c for c in EMPLOYEE_ALIASES if c in df.columns]], df_anon], axis=1)
+    df.attrs["column_sources"] = column_sources
     _require_columns(df, ["beneficiaire_id"], "employees")
 
     for col in ["fonction", "localisation_employe", "department", "manager", "directeur"]:
@@ -343,13 +425,37 @@ def build_dataset(
     satisfaction = standardize_satisfaction(satisfaction_raw if satisfaction_raw is not None else pd.DataFrame())
     employees = standardize_employees(employees_raw if employees_raw is not None else pd.DataFrame())
 
-    df = tickets.merge(satisfaction, on="ticket_id", how="left")
-    df = df.merge(employees, on="beneficiaire_id", how="left")
+    satisfaction_for_join = satisfaction.drop_duplicates("ticket_id", keep="last")
+    df = tickets.merge(satisfaction_for_join, on="ticket_id", how="left", suffixes=("", "_satisfaction"))
+    df = df.merge(employees, on="beneficiaire_id", how="left", suffixes=("", "_employe"))
+
+    if "directeur_employe" in df.columns:
+        df["directeur"] = df["directeur"].where(
+            df["directeur"].map(_is_informative_text),
+            df["directeur_employe"],
+        )
 
     for col in ["fonction", "localisation_employe", "department", "manager", "directeur"]:
         if col not in df.columns:
             df[col] = "Non renseigne"
         df[col] = df[col].fillna("Non renseigne")
+
+    # ── Colonne pôle ──────────────────────────────────────────────────────
+    # Priorité 1 : colonne "pole" déjà présente (export ASKit enrichi).
+    # Priorité 2 : colonne "department" déjà présente (export ASKit).
+    # Priorité 3 : calcul depuis le mapping Directeur → Pôle.
+    if "pole" not in df.columns or df["pole"].isna().all() or df["pole"].eq("Non renseigne").all():
+        if "department" in df.columns and df["department"].map(_is_official_pole).any():
+            df["pole"] = df["department"].where(
+                df["department"].map(_is_official_pole),
+                df["directeur"].map(lambda d: directeur_vers_pole(str(d))),
+            )
+        else:
+            df["pole"] = df["directeur"].map(lambda d: directeur_vers_pole(str(d)))
+    df["pole"] = df["pole"].fillna("Non déterminé")
+    gavoille = df["directeur"].astype(str).str.strip().eq("GAVOILLE, Laurent")
+    df.loc[gavoille & df["site"].astype(str).str.casefold().eq("Tunisie/Kram".casefold()), "pole"] = "E&T"
+    df.loc[gavoille & df["site"].astype(str).str.casefold().eq("Tunisie/Megrine".casefold()), "pole"] = "supports"
 
     df.attrs["satisfaction_responses"] = satisfaction
     df.attrs["column_sources"] = {

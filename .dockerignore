@@ -1,0 +1,14 @@
+.git
+.gitignore
+.idea
+.vscode
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+*.log
+*.err.log
+data/exports/*
+!data/exports/.gitkeep
+venv/
+.venv/

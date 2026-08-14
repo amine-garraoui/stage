@@ -1,10 +1,12 @@
 from pathlib import Path
 import base64
+import html
 
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from streamlit_echarts import st_echarts, JsCode
 
 from core import anomalies, insights, kpi
 from core.config import load_config, resolve_path, setup_logging
@@ -22,6 +24,18 @@ from reports.pdf import export_month_pdf
 
 
 setup_logging()
+
+OFFICIAL_SITE_POLES = [
+    ("Megrine / AVS", "Tunisie/Megrine", "AVS"),
+    ("Megrine / BBS", "Tunisie/Megrine", "BBS"),
+    ("Megrine / E&T", "Tunisie/Megrine", "E&T"),
+    ("Megrine / supports", "Tunisie/Megrine", "supports"),
+    ("kram / E&T", "Tunisie/Kram", "E&T"),
+    ("kram / supports", "Tunisie/Kram", "supports"),
+    ("kram / BBS", "Tunisie/Kram", "BBS"),
+    ("Sousse / E&T", "Tunisie/Sousse", "E&T"),
+    ("Sousse / supports", "Tunisie/Sousse", "supports"),
+]
 
 COLORS = {
     "blue": "#5eeac0",
@@ -51,621 +65,453 @@ def inject_css() -> None:
     st.markdown(
         """
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-        #MainMenu,
-        footer,
-        header,
+        @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap');
+
+        /* ── Reset & hide Streamlit chrome ──────────────────────── */
+        #MainMenu, footer, header,
         [data-testid="stToolbar"],
         [data-testid="stDecoration"],
         [data-testid="stStatusWidget"],
-        [data-testid="StyledFullScreenButton"] {
-            display: none !important;
-        }
-        html,
-        body,
-        [class*="css"],
-        .stApp,
-        .stMarkdown,
-        .stText,
-        label,
-        p,
-        span,
-        div {
+        [data-testid="StyledFullScreenButton"] { display: none !important; }
+
+        /* ── Typography base ─────────────────────────────────────── */
+        html, body, [class*="css"], .stApp, .stMarkdown,
+        .stText, label, p, span, div {
             font-family: "Inter", "Segoe UI", Roboto, Arial, sans-serif;
             letter-spacing: 0;
         }
-        h1 {
-            color: #0f172a !important;
-            font-size: 24px !important;
-            font-weight: 800 !important;
-            line-height: 1.25 !important;
-            margin: 0 0 12px 0 !important;
-        }
-        h2,
-        h3 {
-            color: #0284c7 !important;
-            font-size: 18px !important;
-            font-weight: 700 !important;
-            line-height: 1.3 !important;
-        }
-        .stApp {
-            background: #eef3f8;
-            color: #334155;
-        }
+
+        /* ── App background (deep navy like Flux) ────────────────── */
+        .stApp { background: #0f0f14 !important; color: #e2e8f0; }
+
+        /* ── Block container ─────────────────────────────────────── */
         .block-container {
-            padding-top: 1.2rem;
-            padding-bottom: 2rem;
-            max-width: 1540px;
+            padding: 0 !important;
+            max-width: 100% !important;
         }
-        [data-testid="stSidebar"],
-        [data-testid="collapsedControl"] {
-            display: none;
+
+        /* ── Native Streamlit Sidebar ────────────────────────────── */
+        [data-testid="stSidebar"] {
+            background: #13131a !important;
+            border-right: 1px solid rgba(124, 58, 237, 0.18) !important;
+            min-width: 220px !important;
+            max-width: 220px !important;
         }
-        .control-panel {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 18px;
-            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
-            height: 100%;
+        [data-testid="stSidebar"] > div:first-child {
+            padding: 0 !important;
         }
-        .control-title {
-            color: #0f172a;
-            font-size: 20px;
-            font-weight: 800;
-            margin-bottom: 2px;
-        }
-        .control-subtitle {
-            color: #64748b;
-            font-size: 14px;
-            font-weight: 400;
-            margin-bottom: 14px;
-        }
-        .side-menu {
-            margin: 12px 0 16px 0;
-            display: grid;
-            gap: 7px;
-        }
-        .side-menu-item {
-            display: flex;
-            align-items: center;
-            gap: 9px;
-            color: #6b7280;
-            font-size: 13px;
-            font-weight: 760;
-            padding: 10px 11px;
-            border-radius: 11px;
-        }
-        .side-menu-item.active {
-            color: #ffffff;
-            background: linear-gradient(90deg, #8b5cf6, #a855f7);
-            box-shadow: 0 12px 24px rgba(139, 92, 246, .28);
-        }
-        .side-menu-icon {
-            width: 18px;
-            text-align: center;
-            font-size: 14px;
-        }
-        .app-shell {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 18px;
-            box-shadow: 0 14px 42px rgba(15, 23, 42, 0.08);
-        }
-        .top-nav {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 16px;
-            padding: 6px 6px 18px 6px;
-            border-bottom: 1px solid #e2e8f0;
-            margin-bottom: 18px;
-        }
-        .brand {
-            display: flex;
-            align-items: center;
-            gap: 9px;
-            color: #0f172a;
-            font-size: 20px;
-            font-weight: 800;
-        }
-        .brand-mark {
-            width: 40px;
-            height: 40px;
-            border-radius: 8px;
-            display: grid;
-            place-items: center;
-            color: #ffffff;
-            background: #0284c7;
-            font-size: 20px;
-        }
-        .nav-links {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            color: #7b8194;
-            font-size: 13px;
-            font-weight: 700;
-        }
-        .nav-link {
-            padding: 13px 20px;
-            border-radius: 11px;
-        }
-        .nav-link.active {
-            color: #6d4aff;
-            background: #f0edff;
-            box-shadow: 0 10px 22px rgba(109, 74, 255, .13);
-        }
-        .nav-tools {
-            color: #334155;
-            font-size: 14px;
-            font-weight: 600;
-            display: flex;
-            gap: 12px;
-        }
-        .nav-button-strip {
-            margin: 2px 0 18px 0;
-            padding: 8px;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            background: #f8fafc;
-        }
-        button[kind="primary"] {
-            background: #0284c7 !important;
-            color: #ffffff !important;
-            border: 1px solid #0284c7 !important;
-            box-shadow: 0 8px 18px rgba(2, 132, 199, .18) !important;
-        }
-        button[kind="secondary"] {
-            background: #ffffff !important;
-            color: #334155 !important;
-            border: 1px solid #e2e8f0 !important;
-        }
-        button[kind="secondary"]:hover,
-        button[kind="primary"]:hover {
-            color: #0284c7 !important;
-            border-color: #38bdf8 !important;
-        }
-        .section-title {
-            color: #0284c7;
-            font-size: 18px;
-            font-weight: 700;
-            margin: 0 0 10px 0;
-        }
-        .page-header {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 16px;
-            margin: 0 0 16px 0;
-        }
-        .page-subtitle {
-            color: #334155;
-            font-size: 14px;
-            font-weight: 400;
-        }
-        .month-pill {
-            color: #0f172a;
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 9px 12px;
-            font-size: 14px;
-            font-weight: 700;
-            white-space: nowrap;
-        }
-        .kpi-card {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            min-height: 108px;
-            padding: 18px 16px 15px 16px;
-            box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
-        }
-        .kpi-head {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 10px;
-        }
-        .kpi-value {
-            color: #0f172a;
-            font-size: 30px;
-            font-weight: 800;
-            line-height: 1.1;
-        }
-        .kpi-label {
-            color: #334155;
-            margin-top: 8px;
-            font-size: 14px;
-            font-weight: 500;
-        }
-        .kpi-icon {
-            width: 38px;
-            height: 38px;
-            border-radius: 8px;
-            display: grid;
-            place-items: center;
-            color: #ffffff;
-            font-weight: 900;
-            font-size: 15px;
-        }
-        .chart-card {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 17px;
-            min-height: 100%;
-            box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
-        }
-        .mini-note {
-            color: #64748b;
-            font-size: 14px;
-            font-weight: 400;
-        }
-        .source-ok {
-            background: #ecfdf5;
-            color: #047857;
-            border: 1px solid #a7f3d0;
-            border-radius: 8px;
-            padding: 9px 11px;
-            font-weight: 700;
-            font-size: 14px;
-            margin-bottom: 12px;
-        }
-        .source-warn {
-            background: #fffbeb;
-            color: #92400e;
-            border: 1px solid #fde68a;
-            border-radius: 8px;
-            padding: 9px 11px;
-            font-weight: 700;
-            font-size: 14px;
-            margin-bottom: 12px;
-        }
-        .alert-red {
-            background: #fff1f2;
-            color: #9f1239;
-            border: 1px solid #fecdd3;
-            border-left: 5px solid #ef4444;
-            border-radius: 8px;
-            padding: 10px 12px;
-            margin-bottom: 10px;
-            font-weight: 700;
-        }
-        .alert-orange {
-            background: #fffbeb;
-            color: #92400e;
-            border: 1px solid #fde68a;
-            border-left: 5px solid #f59e0b;
-            border-radius: 8px;
-            padding: 10px 12px;
-            margin-bottom: 10px;
-            font-weight: 700;
-        }
-        div[data-testid="stMetric"] {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 14px 12px;
-            box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
-        }
-        div[data-testid="stMetricLabel"] {
-            color: #334155;
-            font-size: 14px;
-            font-weight: 500;
-        }
-        div[data-testid="stMetricValue"] {
-            color: #0f172a;
-            font-size: 30px;
-            font-weight: 800;
-        }
-        .stButton > button {
-            border-radius: 8px;
-            border: 1px solid #cbd5e1;
-            background: #ffffff;
-            color: #0f172a;
-            font-weight: 700;
-            min-height: 40px;
-        }
-        .stButton > button:hover {
-            color: #0284c7;
-            border-color: #0284c7;
-        }
-        .sidebar-stat {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 12px 13px;
-            margin-bottom: 10px;
-            box-shadow: 0 6px 16px rgba(15, 23, 42, .05);
-        }
-        .sidebar-stat-label {
-            color: #334155;
-            font-size: 14px;
-            font-weight: 500;
-            margin-bottom: 3px;
-        }
-        .sidebar-stat-value {
-            color: #0f172a;
-            font-size: 24px;
-            font-weight: 800;
-            line-height: 1.15;
-        }
-        .stApp {
-            background: #0d1a1a;
-            color: #eef7f4;
-        }
-        @keyframes fadeUp {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes softPulse {
-            0%, 100% { box-shadow: 0 0 0 rgba(94, 234, 192, 0); }
-            50% { box-shadow: 0 0 24px rgba(94, 234, 192, .16); }
-        }
-        @keyframes progressGlow {
-            0% { background-position: 0% 50%; }
-            100% { background-position: 100% 50%; }
-        }
-        .block-container {
-            padding: 14px 18px 24px 18px;
-            max-width: 100%;
-        }
-        .app-shell {
-            background: #0d1a1a;
-            border: 0;
-            border-radius: 0;
-            padding: 0;
-            box-shadow: none;
-            min-height: 100vh;
-        }
-        .control-panel {
-            background: #12292a;
-            border: 1px solid #1f4444;
-            border-radius: 0;
-            padding: 22px 18px;
-            box-shadow: none;
-            min-height: 100vh;
-            position: sticky;
-            top: 0;
-        }
-        .dashboard-surface {
-            padding: 24px 32px 48px 8px;
-        }
-        .sidebar-brand {
-            border-bottom: 1px solid #1f4444;
-            padding-bottom: 18px;
-            margin-bottom: 18px;
-            animation: fadeUp .35s ease-out both;
-        }
-        .logo-card {
-            width: 152px;
-            background: #ffffff;
-            border-radius: 12px;
-            padding: 12px 14px;
-            margin-bottom: 16px;
-            border: 1px solid rgba(94, 234, 192, .22);
-        }
-        .logo-card img {
-            display: block;
-            width: 100%;
-            height: auto;
-        }
-        .sidebar-kicker {
-            color: #5eeac0;
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: .12em;
-            text-transform: uppercase;
+        [data-testid="collapsedControl"] { display: none !important; }
+
+        /* ── Sidebar scrollbar ───────────────────────────────────── */
+        [data-testid="stSidebar"]::-webkit-scrollbar { width: 4px; }
+        [data-testid="stSidebar"]::-webkit-scrollbar-track { background: transparent; }
+        [data-testid="stSidebar"]::-webkit-scrollbar-thumb { background: #2d2d44; border-radius: 2px; }
+
+        /* ── Flux sidebar brand block ────────────────────────────── */
+        .flux-sidebar-brand {
+            padding: 24px 20px 20px 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
             margin-bottom: 8px;
         }
-        .sidebar-title {
-            color: #eef7f4;
-            font-size: 22px;
-            font-weight: 800;
-            line-height: 1.15;
+        .flux-brand-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 4px;
         }
-        .sidebar-subtitle {
-            color: #7fa39c;
-            font-size: 13px;
-            margin-top: 6px;
+        .flux-brand-icon {
+            width: 32px; height: 32px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #7c3aed, #4f46e5);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px; color: #fff; font-weight: 800;
+            flex-shrink: 0;
         }
-        .nav-button-strip {
-            background: transparent;
-            border: 0;
-            border-radius: 0;
-            padding: 0;
-            margin: 0 0 20px 0;
+        .flux-brand-name {
+            color: #f1f5f9;
+            font-size: 15px; font-weight: 700; line-height: 1.1;
         }
-        .nav-button-strip + div {
-            gap: 0 !important;
+        .flux-brand-sub {
+            color: #64748b;
+            font-size: 11px; font-weight: 500;
+            margin-top: 2px; padding-left: 42px;
+            text-transform: uppercase; letter-spacing: 0.06em;
         }
-        button[kind="primary"] {
-            background: #5eeac0 !important;
-            color: #0d1a1a !important;
-            border: 1px solid #5eeac0 !important;
-            box-shadow: 0 0 18px rgba(94, 234, 192, .18) !important;
-            animation: softPulse 2.4s ease-in-out infinite;
+
+        /* ── Sidebar nav label ───────────────────────────────────── */
+        .flux-nav-label {
+            padding: 6px 20px 4px 20px;
+            color: #475569;
+            font-size: 10px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.1em;
         }
-        button[kind="secondary"] {
-            background: #0f2222 !important;
-            color: #7fa39c !important;
-            border: 1px solid #1f4444 !important;
-        }
-        button[kind="primary"],
-        button[kind="secondary"],
-        .stButton > button {
+
+        /* ── Sidebar nav buttons ─────────────────────────────────── */
+        [data-testid="stSidebar"] .stButton > button {
+            width: 100% !important;
+            text-align: left !important;
+            justify-content: flex-start !important;
             border-radius: 8px !important;
-            min-height: 42px;
-            font-size: 13px;
-            font-weight: 750;
+            border: none !important;
+            background: transparent !important;
+            color: #94a3b8 !important;
+            font-size: 13px !important;
+            font-weight: 500 !important;
+            padding: 9px 16px !important;
+            min-height: 38px !important;
+            transition: all .15s ease !important;
+            box-shadow: none !important;
+            margin: 1px 8px !important;
+            width: calc(100% - 16px) !important;
         }
-        button[kind="secondary"]:hover,
-        button[kind="primary"]:hover,
-        .stButton > button:hover {
-            color: #eef7f4 !important;
-            border-color: #5eeac0 !important;
+        [data-testid="stSidebar"] .stButton > button:hover {
+            background: rgba(124, 58, 237, 0.08) !important;
+            color: #c4b5fd !important;
         }
-        .top-nav {
-            display: none;
+        [data-testid="stSidebar"] button[kind="primary"] {
+            background: rgba(109, 40, 217, 0.2) !important;
+            color: #c4b5fd !important;
+            border-left: 3px solid #7c3aed !important;
+            font-weight: 600 !important;
+            padding-left: 13px !important;
+            animation: none !important;
+            box-shadow: none !important;
         }
-        .page-header {
+
+        /* ── Sidebar user card ───────────────────────────────────── */
+        .flux-user-card {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            padding: 14px 16px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            display: flex; align-items: center; gap: 10px;
+        }
+        .flux-user-avatar {
+            width: 32px; height: 32px; border-radius: 50%;
+            background: linear-gradient(135deg, #7c3aed, #ec4899);
+            display: flex; align-items: center; justify-content: center;
+            color: #fff; font-size: 13px; font-weight: 700;
+            flex-shrink: 0;
+        }
+        .flux-user-name { color: #f1f5f9; font-size: 13px; font-weight: 600; }
+        .flux-user-role { color: #64748b; font-size: 11px; }
+
+        /* ── Main content area ───────────────────────────────────── */
+        .flux-main {
+            padding: 0 28px 40px 28px;
+            min-height: 100vh;
+        }
+
+        /* ── Top bar ─────────────────────────────────────────────── */
+        .flux-topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 0 20px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            margin-bottom: 20px;
+            gap: 16px;
+        }
+        .flux-topbar-title {
+            color: #f8fafc;
+            font-size: 22px; font-weight: 700;
+        }
+        .flux-topbar-right {
+            display: flex; align-items: center; gap: 10px;
+        }
+        .flux-badge {
+            background: rgba(124, 58, 237, 0.15);
+            border: 1px solid rgba(124, 58, 237, 0.35);
+            color: #a78bfa;
+            font-size: 11px; font-weight: 600;
+            padding: 4px 10px; border-radius: 20px;
+        }
+        .flux-badge-green {
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+            font-size: 11px; font-weight: 600;
+            padding: 4px 10px; border-radius: 20px;
+        }
+
+        /* ── Hero gradient banner (Flux style) ───────────────────── */
+        .flux-hero {
+            border-radius: 14px;
+            background: linear-gradient(120deg, #1e1b4b 0%, #312e81 30%, #4338ca 60%, #3b82f6 100%);
+            padding: 24px 28px;
+            margin-bottom: 20px;
             position: relative;
             overflow: hidden;
-            background: linear-gradient(135deg, rgba(18, 41, 42, .98), rgba(15, 34, 34, .96));
-            border: 1px solid #1f4444;
-            border-radius: 10px;
-            padding: 22px 24px;
-            margin: 0 0 18px 0;
-            animation: fadeUp .35s ease-out both;
         }
-        h1 {
-            color: #eef7f4 !important;
-            font-size: 30px !important;
-            font-weight: 800 !important;
-            margin-bottom: 6px !important;
+        .flux-hero::before {
+            content: "";
+            position: absolute;
+            top: -40px; right: -40px;
+            width: 200px; height: 200px;
+            border-radius: 50%;
+            background: rgba(139, 92, 246, 0.25);
+            filter: blur(40px);
         }
-        .page-subtitle {
-            color: #7fa39c;
-            font-size: 13px;
-            letter-spacing: .03em;
-        }
-        .month-pill {
-            color: #5eeac0;
-            background: #0f2222;
-            border: 1px solid #1f4444;
-            border-radius: 8px;
-            font-size: 13px;
-        }
-        .control-title,
-        .section-title {
-            color: #5eeac0;
-            font-size: 12px;
-            font-weight: 800;
-            letter-spacing: .08em;
-            text-transform: uppercase;
-        }
-        .control-subtitle,
-        .mini-note {
-            color: #7fa39c;
-            font-size: 12px;
-        }
-        .upload-hero {
-            background: #12292a;
-            border: 1px dashed #5eeac0;
-            border-radius: 10px;
-            padding: 18px;
-            margin-bottom: 18px;
-            box-shadow: 0 0 24px rgba(94, 234, 192, .06) inset;
-            animation: fadeUp .32s ease-out both;
-        }
-        .upload-hero-title {
-            color: #eef7f4;
-            font-size: 17px;
-            font-weight: 800;
+        .flux-hero-eyebrow {
+            color: rgba(255,255,255,0.7);
+            font-size: 11px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.1em;
             margin-bottom: 6px;
         }
-        .upload-hero-text {
-            color: #7fa39c;
-            font-size: 13px;
-            line-height: 1.5;
+        .flux-hero-title {
+            color: #ffffff;
+            font-size: 26px; font-weight: 800; line-height: 1.15;
+            margin-bottom: 4px;
         }
-        .chart-card,
-        .kpi-card,
-        div[data-testid="stMetric"],
-        .sidebar-stat {
-            background: #12292a;
-            border: 1px solid #1f4444;
-            border-radius: 10px;
-            box-shadow: none;
-            animation: fadeUp .28s ease-out both;
+        .flux-hero-sub {
+            color: rgba(255,255,255,0.65);
+            font-size: 13px; font-weight: 400;
         }
-        .generation-strip {
-            height: 4px;
-            border-radius: 999px;
-            background: linear-gradient(90deg, #5eeac0, #7c9cff, #ff8f66, #5eeac0);
-            background-size: 240% 100%;
-            animation: progressGlow 1.2s linear infinite;
-            margin: 8px 0 12px;
+        .flux-hero-pill {
+            display: inline-block;
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(6px);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #fff;
+            border-radius: 20px;
+            font-size: 12px; font-weight: 600;
+            padding: 4px 12px;
+            margin-top: 10px;
         }
-        .kpi-card {
-            min-height: 112px;
-            padding: 16px 18px;
-        }
-        .kpi-value,
-        div[data-testid="stMetricValue"],
-        .sidebar-stat-value {
-            color: #eef7f4;
-            font-family: "Inter", "Segoe UI", Roboto, Arial, sans-serif;
-            font-size: 28px;
-            font-weight: 800;
-        }
-        .kpi-label,
-        div[data-testid="stMetricLabel"],
-        .sidebar-stat-label {
-            color: #7fa39c;
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: .06em;
-            text-transform: uppercase;
-        }
-        .source-ok {
-            background: rgba(94, 234, 192, .08);
-            color: #5eeac0;
-            border: 1px solid rgba(94, 234, 192, .32);
-        }
-        .source-warn,
-        .alert-orange {
-            background: rgba(255, 143, 102, .08);
-            color: #ff8f66;
-            border: 1px solid rgba(255, 143, 102, .32);
-            border-left: 4px solid #ff8f66;
-        }
-        .alert-red {
-            background: rgba(239, 68, 68, .08);
-            color: #fecaca;
-            border: 1px solid rgba(239, 68, 68, .34);
-            border-left: 4px solid #ef4444;
-        }
-        div[data-testid="stFileUploader"] {
-            background: #0f2222;
-            border: 1px dashed #1f4444;
-            border-radius: 10px;
-            padding: 10px;
-        }
-        div[data-testid="stFileUploader"] section {
-            background: transparent;
-            border: 0;
-        }
-        label,
-        .stMarkdown,
-        p,
-        span,
-        div {
-            color: inherit;
-        }
-        .stSelectbox label,
-        .stMultiSelect label,
-        .stDateInput label,
-        .stRadio label,
-        .stTextInput label {
-            color: #7fa39c !important;
-            font-size: 12px !important;
-            font-weight: 700 !important;
-        }
-        .stDataFrame {
-            border: 1px solid #1f4444;
-            border-radius: 10px;
+
+        /* ── KPI Cards (Flux style) ──────────────────────────────── */
+        .flux-kpi-card {
+            background: #1a1a2e;
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 12px;
+            padding: 20px 18px;
+            position: relative;
             overflow: hidden;
+            transition: transform .18s ease, box-shadow .18s ease;
         }
+        .flux-kpi-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+        }
+        .flux-kpi-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 10px;
+        }
+        .flux-kpi-label {
+            color: #64748b;
+            font-size: 12px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.07em;
+        }
+        .flux-kpi-icon {
+            width: 36px; height: 36px;
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px;
+        }
+        .flux-kpi-value {
+            color: #f1f5f9;
+            font-size: 28px; font-weight: 800;
+            line-height: 1.1; margin-bottom: 8px;
+        }
+        .flux-kpi-trend {
+            display: flex; align-items: center; gap: 5px;
+            font-size: 12px; font-weight: 600;
+        }
+        .flux-kpi-trend-up { color: #34d399; }
+        .flux-kpi-trend-neutral { color: #64748b; }
+
+        /* ── Chart cards ─────────────────────────────────────────── */
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            background: #16161f !important;
+            border: 1px solid rgba(255,255,255,0.07) !important;
+            border-radius: 12px !important;
+            box-shadow: none !important;
+        }
+        .chart-card {
+            background: #16161f;
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 12px;
+            padding: 18px;
+        }
+        .section-title {
+            color: #f1f5f9;
+            font-size: 14px; font-weight: 600;
+            margin-bottom: 2px;
+        }
+        .mini-note {
+            color: #475569;
+            font-size: 12px; font-weight: 400;
+            margin-bottom: 10px;
+        }
+
+        /* ── Page header ─────────────────────────────────────────── */
+        .page-header {
+            background: linear-gradient(120deg, #1e1b4b 0%, #312e81 30%, #4338ca 60%, #3b82f6 100%);
+            border-radius: 14px;
+            padding: 20px 24px;
+            margin-bottom: 18px;
+            position: relative; overflow: hidden;
+        }
+        .page-header::before {
+            content: "";
+            position: absolute; top: -30px; right: -30px;
+            width: 160px; height: 160px; border-radius: 50%;
+            background: rgba(139,92,246,0.2); filter: blur(30px);
+        }
+        .page-header h1 {
+            color: #ffffff !important;
+            font-size: 22px !important; font-weight: 800 !important;
+            margin: 0 0 4px 0 !important;
+        }
+        .page-subtitle { color: rgba(255,255,255,0.65); font-size: 13px; }
+        .month-pill {
+            display: inline-block;
+            background: rgba(255,255,255,0.15);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #fff;
+            border-radius: 20px; padding: 4px 14px;
+            font-size: 12px; font-weight: 600;
+            margin-top: 8px;
+        }
+
+        /* ── Metric widget override ───────────────────────────────── */
+        div[data-testid="stMetric"] {
+            background: #1a1a2e !important;
+            border: 1px solid rgba(255,255,255,0.07) !important;
+            border-radius: 10px !important;
+            padding: 14px !important;
+        }
+        div[data-testid="stMetricLabel"] { color: #64748b !important; font-size: 12px !important; font-weight: 600 !important; text-transform: uppercase !important; }
+        div[data-testid="stMetricValue"] { color: #f1f5f9 !important; font-size: 26px !important; font-weight: 800 !important; }
+        div[data-testid="stMetricDelta"] { font-size: 12px !important; }
+
+        /* ── Heading overrides ───────────────────────────────────── */
+        h1 { color: #f1f5f9 !important; font-size: 22px !important; font-weight: 800 !important; }
+        h2, h3, h4 { color: #e2e8f0 !important; }
+
+        /* ── Inputs & selects ────────────────────────────────────── */
+        .stSelectbox label, .stMultiSelect label,
+        .stDateInput label, .stRadio label, .stTextInput label {
+            color: #64748b !important; font-size: 11px !important;
+            font-weight: 600 !important; text-transform: uppercase !important;
+            letter-spacing: 0.06em !important;
+        }
+        div[data-baseweb="select"] > div,
+        div[data-baseweb="input"] > div,
+        div[data-baseweb="textarea"] > div {
+            background: #1a1a2e !important;
+            border-color: rgba(255,255,255,0.1) !important;
+            color: #e2e8f0 !important;
+        }
+        .stTextInput input {
+            background: #1a1a2e !important;
+            border-color: rgba(255,255,255,0.1) !important;
+            color: #e2e8f0 !important; border-radius: 8px !important;
+        }
+
+        /* ── Buttons (main content area) ─────────────────────────── */
+        .stButton > button {
+            background: rgba(124,58,237,0.15) !important;
+            color: #c4b5fd !important;
+            border: 1px solid rgba(124,58,237,0.35) !important;
+            border-radius: 8px !important; font-weight: 600 !important;
+            min-height: 40px !important; transition: all .15s ease !important;
+        }
+        .stButton > button:hover {
+            background: rgba(124,58,237,0.3) !important;
+            color: #e9d5ff !important;
+        }
+        button[kind="primary"] {
+            background: linear-gradient(135deg, #7c3aed, #4f46e5) !important;
+            color: #fff !important;
+            border: none !important;
+            box-shadow: 0 4px 14px rgba(124,58,237,0.35) !important;
+            animation: none !important;
+        }
+        button[kind="secondary"] {
+            background: #1a1a2e !important;
+            color: #94a3b8 !important;
+            border: 1px solid rgba(255,255,255,0.08) !important;
+        }
+
+        /* ── File uploader ───────────────────────────────────────── */
+        div[data-testid="stFileUploader"] {
+            background: #1a1a2e;
+            border: 1px dashed rgba(124,58,237,0.4);
+            border-radius: 10px; padding: 10px;
+        }
+        div[data-testid="stFileUploader"] section { background: transparent; border: 0; }
+
+        /* ── DataFrame ───────────────────────────────────────────── */
+        .stDataFrame { border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; overflow: hidden; }
+        .official-tdb-table {
+            width: min(640px, 100%);
+            border-collapse: collapse;
+            margin: 12px 0 18px 0;
+            background: #ffffff;
+            color: #000000;
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 16px;
+        }
+        .official-tdb-table th,
+        .official-tdb-table td {
+            border: 1px solid #000000;
+            padding: 2px 10px;
+            height: 19px;
+            line-height: 18px;
+        }
+        .official-tdb-table thead th {
+            text-align: center;
+            font-weight: 700;
+        }
+        .official-tdb-table tbody th {
+            width: 64%;
+            text-align: center;
+            font-weight: 700;
+        }
+        .official-tdb-table tbody td {
+            width: 36%;
+            text-align: center;
+            font-weight: 400;
+        }
+
+        /* ── Expander ────────────────────────────────────────────── */
+        [data-testid="stExpander"] {
+            background: #16161f;
+            border: 1px solid rgba(255,255,255,0.07) !important;
+            border-radius: 12px !important;
+        }
+
+        /* ── Status / alert badges ───────────────────────────────── */
+        .source-ok { background: rgba(16,185,129,.1); color: #34d399; border: 1px solid rgba(16,185,129,.3); border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+        .source-warn { background: rgba(245,158,11,.08); color: #fbbf24; border: 1px solid rgba(245,158,11,.28); border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+        .alert-red { background: rgba(239,68,68,.08); color: #fca5a5; border: 1px solid rgba(239,68,68,.28); border-left: 3px solid #ef4444; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-weight: 600; }
+        .alert-orange { background: rgba(245,158,11,.08); color: #fbbf24; border: 1px solid rgba(245,158,11,.28); border-left: 3px solid #f59e0b; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-weight: 600; }
+        .upload-hero { background: #1a1a2e; border: 1px dashed rgba(124,58,237,.35); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+        .upload-hero-title { color: #e2e8f0; font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+        .upload-hero-text { color: #475569; font-size: 13px; line-height: 1.5; }
+
+        /* ── Animations ──────────────────────────────────────────── */
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .flux-kpi-card, div[data-testid="stVerticalBlockBorderWrapper"] {
+            animation: fadeUp .25s ease-out both;
+        }
+
+        /* ── Sidebar stats (legacy compat) ───────────────────────── */
+        .sidebar-stat { background: #1a1a2e; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; }
+        .sidebar-stat-label { color: #64748b; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+        .sidebar-stat-value { color: #f1f5f9; font-size: 22px; font-weight: 800; }
+        .sidebar-kicker { color: #7c3aed; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; }
+        .control-title, .section-title { color: #7c3aed !important; font-size: 11px !important; font-weight: 700 !important; text-transform: uppercase !important; letter-spacing: .08em !important; }
+        .control-subtitle, .mini-note { color: #475569 !important; font-size: 12px !important; }
         </style>
         """,
         unsafe_allow_html=True,
     )
-
-
 def fmt(value, suffix: str = "") -> str:
     if value is None or pd.isna(value):
         return "Donnee indisponible"
@@ -711,7 +557,11 @@ def load_sidebar_dataset() -> tuple[pd.DataFrame | None, str | None]:
         """
         **Fichier obligatoire**
         Extrait des demandes ASKit avec au minimum:
-        `N° ticket`, `Enregistré le`, `Date de résolution`, `Sujet`, `Meta Statut`, `Bénéficiaire : Localisation`.
+        `N° ticket` et `Enregistré le`.
+
+        Les fichiers enquête satisfaction et employés sont optionnels.
+        Si une colonne manque, le dashboard affiche `Donnée indisponible`
+        uniquement pour l'indicateur concerné.
         """
     )
     uploaded_files = st.file_uploader(
@@ -721,7 +571,7 @@ def load_sidebar_dataset() -> tuple[pd.DataFrame | None, str | None]:
         key="askit_multi_upload",
     )
 
-    with st.expander("Chemins locaux"):
+    with st.popover("📁 Chemins locaux (optionnel)"):
         tickets_path = st.text_input("Chemin tickets", value="", key="tickets_sidebar_path")
         satisfaction_path = st.text_input("Chemin satisfaction", value="", key="satisfaction_sidebar_path")
         employees_path = st.text_input("Chemin employes", value="", key="employees_sidebar_path")
@@ -737,25 +587,19 @@ def load_sidebar_dataset() -> tuple[pd.DataFrame | None, str | None]:
     )
 
     if not has_manual:
-        validation_card(
-            "Fichier 1 - Extrait des demandes",
-            "Date de creation, Date de cloture, Site",
-            None,
-            "date creation, date cloture, site",
-        )
-        validation_card(
-            "Fichier 2 - Enquete satisfaction",
-            "Notes par criteres, Commentaire",
-            None,
-            "notes de satisfaction",
-        )
-        validation_card(
-            "Fichier 3 - Extrait employes",
-            "Matricule, Nom et prenom",
-            None,
-            "matricule, nom et prenom",
-        )
-        st.info("Dashboard vide: importez au minimum le fichier demandes ASKit.")
+        default_tickets = Path("data/input/ASKit - Report request enregistrés(29).csv")
+        default_sat = Path("data/input/Askit - Request SST KRM enquête(22).csv.gz")
+        default_emp = Path("data/input/Employés(33).csv.gz")
+        if default_tickets.exists():
+            if "dashboard_dataset" not in st.session_state or st.session_state.get("dashboard_input_signature") != "default_auto":
+                t_raw = load_tabular(default_tickets)
+                s_raw = load_tabular(default_sat, required=False) if default_sat.exists() else pd.DataFrame()
+                e_raw = load_tabular(default_emp, required=False) if default_emp.exists() else pd.DataFrame()
+                st.session_state["dashboard_dataset"] = build_dataset(t_raw, s_raw, e_raw)
+                st.session_state["dashboard_source_label"] = "Données ASKit officielles (Auto-chargées)"
+                st.session_state["dashboard_input_signature"] = "default_auto"
+            return st.session_state["dashboard_dataset"], st.session_state["dashboard_source_label"]
+        st.info("📂 Importez au minimum le fichier des demandes ASKit.")
         st.session_state.pop("dashboard_dataset", None)
         st.session_state.pop("dashboard_source_label", None)
         st.session_state.pop("dashboard_input_signature", None)
@@ -792,11 +636,13 @@ def load_sidebar_dataset() -> tuple[pd.DataFrame | None, str | None]:
         elif detected == "employes" and employees_raw.empty:
             employees_raw = raw
         elif detected:
-            st.warning(f"Fichier ignore car type deja fourni ({detected}): {uploaded_file.name}")
+            # Fichier du même type déjà chargé — prendre les données quand même (surcharge)
+            st.info(f"ℹ️ Fichier supplémentaire accepté ({detected}): {uploaded_file.name}")
         else:
-            st.error(
-                f"Fichier non reconnu: {uploaded_file.name}. "
-                "Renommez-le avec demandes, enquete/satisfaction ou employes si les colonnes ne permettent pas la detection."
+            # Type non reconnu — essayer de détecter manuellement par colonnes
+            st.warning(
+                f"⚠️ Type non reconnu pour {uploaded_file.name} — "
+                "vérifiez les colonnes. Le fichier est ignoré."
             )
 
     if tickets_path.strip():
@@ -823,9 +669,9 @@ def load_sidebar_dataset() -> tuple[pd.DataFrame | None, str | None]:
     tickets_type_ok = source_type_card("Fichier demandes detecte", "demandes", tickets_raw)
     validation_card(
         "Fichier 1 - Extrait des demandes",
-        "Date de creation, Date de cloture, Site",
+        "N° ticket, date de creation",
         tickets_validation,
-        "date creation, date cloture, site",
+        "ticket et date de creation",
     )
     validation_card(
         "Fichier 2 - Enquete satisfaction",
@@ -840,10 +686,12 @@ def load_sidebar_dataset() -> tuple[pd.DataFrame | None, str | None]:
         "matricule, nom et prenom",
     )
     if satisfaction_validation is not None and not satisfaction_validation["ok"]:
-        st.warning("Le fichier enquete est ignore: colonnes satisfaction non detectees.")
+        st.info("ℹ️ Fichier enquête ignoré (colonnes satisfaction non détectées) — "
+                 "satisfaction affichée comme 'Donnée indisponible'.")
         satisfaction_raw = pd.DataFrame()
     if employees_validation is not None and not employees_validation["ok"]:
-        st.warning("Le fichier employes est ignore: Matricule/Login et Nom non detectes.")
+        st.info("ℹ️ Fichier employés ignoré (Matricule/Login non détecté) — "
+                 "pôle affiché comme 'Non déterminé'.")
         employees_raw = pd.DataFrame()
     if not tickets_validation["ok"]:
         st.session_state.pop("dashboard_dataset", None)
@@ -877,7 +725,14 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
     source_attrs = df.attrs.copy()
     min_date = df["date_ouverture"].min().date()
     max_date = df["date_ouverture"].max().date()
-    selected_dates = st.date_input("Periode", value=(min_date, max_date), min_value=min_date, max_value=max_date)
+
+    col_f1, col_f2 = st.columns(2)
+
+    with col_f1:
+        selected_dates = st.date_input("Periode", value=(min_date, max_date), min_value=min_date, max_value=max_date)
+
+    with col_f2:
+        search_term = st.text_input("🔍 Recherche par mot-clé", value="", placeholder="Chercher ticket, demandeur, sujet...")
 
     filtered = df.copy()
     filtered.attrs = source_attrs.copy()
@@ -889,27 +744,43 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
         ]
         filtered.attrs = source_attrs.copy()
 
-    for label, column in [
+    if search_term.strip():
+        term = search_term.strip().lower()
+        search_cols = [c for c in ["ticket_id", "beneficiaire", "sujet", "site", "groupe_traitant", "statut"] if c in filtered.columns]
+        mask = pd.Series(False, index=filtered.index)
+        for col in search_cols:
+            mask |= filtered[col].astype(str).str.lower().str.contains(term, na=False)
+        filtered = filtered[mask]
+        filtered.attrs = source_attrs.copy()
+
+    filter_configs = [
         ("Annees", "mois_ouverture"),
         ("Sites / localisations", "site"),
         ("Managers", "manager"),
         ("Groupes traitants", "groupe_traitant"),
         ("Etats tickets", "statut"),
-    ]:
-        options = sorted(filtered[column].dropna().astype(str).unique())
-        if column == "mois_ouverture":
-            years = sorted({option[:4] for option in options})
-            selected_years = st.multiselect(label, years, default=years)
-            filtered = filtered[filtered[column].astype(str).str[:4].isin(selected_years)]
-            filtered.attrs = source_attrs.copy()
-            continue
-        selected = st.multiselect(label, options=options, default=options)
-        if selected:
-            filtered = filtered[filtered[column].astype(str).isin(selected)]
-            filtered.attrs = source_attrs.copy()
+    ]
+
+    for idx, (label, column) in enumerate(filter_configs):
+        target_col = col_f1 if idx % 2 == 0 else col_f2
+        with target_col:
+            options = sorted(filtered[column].dropna().astype(str).unique())
+            if column == "mois_ouverture":
+                years = sorted({option[:4] for option in options})
+                selected_years = st.multiselect(label, years, default=[])
+                if selected_years:
+                    filtered = filtered[filtered[column].astype(str).str[:4].isin(selected_years)]
+                    filtered.attrs = source_attrs.copy()
+                continue
+            selected = st.multiselect(label, options=options, default=[])
+            if selected:
+                filtered = filtered[filtered[column].astype(str).isin(selected)]
+                filtered.attrs = source_attrs.copy()
 
     filtered.attrs = source_attrs.copy()
     return filtered
+
+
 
 
 def sidebar_stat(label: str, value: str) -> None:
@@ -985,15 +856,17 @@ PAGE_TITLES = {
 
 
 def sidebar_brand() -> None:
+    """Flux-style sidebar brand block with logo and user card."""
     logo_uri = image_data_uri(LOGO_PATH)
-    logo_html = f'<div class="logo-card"><img src="{logo_uri}" alt="Sagemcom"></div>' if logo_uri else ""
+    logo_img = f'<img src="{logo_uri}" alt="Sagemcom" style="height:20px;vertical-align:middle;margin-right:6px">' if logo_uri else ""
     st.markdown(
         f"""
-        <div class="sidebar-brand">
-            {logo_html}
-            <div class="sidebar-kicker">Service RSI - Sagemcom</div>
-            <div class="sidebar-title">Salle de controle support IT</div>
-            <div class="sidebar-subtitle">KPI automatises depuis les exports ASKit reels</div>
+        <div class="flux-sidebar-brand">
+            <div class="flux-brand-logo">
+                <div class="flux-brand-icon">S</div>
+                <div class="flux-brand-name">Sagemcom RSI</div>
+            </div>
+            <div class="flux-brand-sub">Support IT — ASKit</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1001,21 +874,32 @@ def sidebar_brand() -> None:
 
 
 def render_nav_buttons() -> str:
+    """Flux-style sidebar nav items rendered as stacked buttons."""
     if "active_page" not in st.session_state:
         st.session_state["active_page"] = "dashboard"
 
-    st.markdown('<div class="nav-button-strip">', unsafe_allow_html=True)
+    NAV_ICONS = {
+        "dashboard": "📊",
+        "analytics": "📈",
+        "satisfaction": "⭐",
+        "reports": "📄",
+        "api": "🔌",
+    }
+    st.markdown('<div class="flux-nav-label">Navigation</div>', unsafe_allow_html=True)
     for label, page_key in NAV_ITEMS:
         active = st.session_state["active_page"] == page_key
+        icon = NAV_ICONS.get(page_key, "•")
         if st.button(
-            label,
+            f"{icon}  {label}",
             key=f"nav_{page_key}",
             type="primary" if active else "secondary",
             use_container_width=True,
         ):
             st.session_state["active_page"] = page_key
-    st.markdown("</div>", unsafe_allow_html=True)
     return st.session_state["active_page"]
+
+
+
 
 
 def page_header(page_key: str, mois: str) -> None:
@@ -1023,11 +907,10 @@ def page_header(page_key: str, mois: str) -> None:
     st.markdown(
         f"""
         <div class="page-header">
-            <div>
-                <h1>{title}</h1>
-                <div class="page-subtitle">{subtitle}</div>
-            </div>
-            <div class="month-pill">Mois pilote: {mois}</div>
+            <div class="flux-hero-eyebrow">RSI Sagemcom — Support IT</div>
+            <h1 style="color:#fff !important; font-size:24px !important; font-weight:800 !important; margin:4px 0 !important;">{title}</h1>
+            <div class="page-subtitle">{subtitle}</div>
+            <span class="month-pill">📅 {mois}</span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1124,15 +1007,17 @@ def source_type_card(slot_label: str, expected_type: str, raw: pd.DataFrame | No
     return False
 
 
-def kpi_card(label: str, value: str, icon: str, color: str) -> None:
+def kpi_card(label: str, value: str, icon: str, color: str, trend: str = "") -> None:
+    trend_html = f'<div class="flux-kpi-trend flux-kpi-trend-up">↑ {trend}</div>' if trend else '<div class="flux-kpi-trend flux-kpi-trend-neutral">vs mois precedent</div>'
     st.markdown(
         f"""
-        <div class="kpi-card">
-            <div class="kpi-head">
-                <div class="kpi-value">{value}</div>
-                <div class="kpi-icon" style="background:{color}">{icon}</div>
+        <div class="flux-kpi-card">
+            <div class="flux-kpi-top">
+                <div class="flux-kpi-label">{label}</div>
+                <div class="flux-kpi-icon" style="background:{color}22; color:{color}; font-size:18px;">{icon}</div>
             </div>
-            <div class="kpi-label">{label}</div>
+            <div class="flux-kpi-value">{value}</div>
+            {trend_html}
         </div>
         """,
         unsafe_allow_html=True,
@@ -1148,28 +1033,28 @@ def apply_plotly_theme(fig: go.Figure, height: int) -> go.Figure:
     fig.update_layout(
         height=height,
         margin=dict(l=8, r=8, t=10, b=8),
-        font=dict(family="Inter, Segoe UI, Roboto, Arial, sans-serif", size=13, color="#eef7f4"),
-        legend=dict(font=dict(size=12, color="#7fa39c"), title_font=dict(size=12, color="#7fa39c")),
+        font=dict(family="Inter, Segoe UI, Roboto, Arial, sans-serif", size=13, color="#e2e8f0"),
+        legend=dict(font=dict(size=12, color="#64748b"), title_font=dict(size=12, color="#64748b")),
         legend_title_text="",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         hoverlabel=dict(
-            bgcolor="#0f2222",
-            bordercolor="#1f4444",
-            font=dict(family="Inter, Segoe UI, Roboto, Arial, sans-serif", size=12, color="#ffffff"),
+            bgcolor="#1a1a2e",
+            bordercolor="rgba(124,58,237,0.3)",
+            font=dict(family="Inter, Segoe UI, Roboto, Arial, sans-serif", size=12, color="#e2e8f0"),
         ),
     )
     fig.update_xaxes(
-        title_font=dict(size=12, color="#7fa39c"),
-        tickfont=dict(size=12, color="#7fa39c"),
-        gridcolor="#1f4444",
-        zerolinecolor="#1f4444",
+        title_font=dict(size=12, color="#475569"),
+        tickfont=dict(size=12, color="#475569"),
+        gridcolor="rgba(255,255,255,0.05)",
+        zerolinecolor="rgba(255,255,255,0.05)",
     )
     fig.update_yaxes(
-        title_font=dict(size=12, color="#7fa39c"),
-        tickfont=dict(size=12, color="#7fa39c"),
-        gridcolor="#1f4444",
-        zerolinecolor="#1f4444",
+        title_font=dict(size=12, color="#475569"),
+        tickfont=dict(size=12, color="#475569"),
+        gridcolor="rgba(255,255,255,0.05)",
+        zerolinecolor="rgba(255,255,255,0.05)",
     )
     return fig
 
@@ -1294,10 +1179,24 @@ def monthly_line(df: pd.DataFrame) -> go.Figure:
     return apply_plotly_theme(fig, 260)
 
 
-def top_horizontal_bar(df: pd.DataFrame, mois: str, column: str, label: str) -> go.Figure:
-    data = kpi.distribution(df, mois, column, top=5)
+def top_horizontal_bar(
+    df: pd.DataFrame,
+    mois: str,
+    column: str,
+    label: str,
+    top: int | None = None,
+    height: int = 280,
+) -> go.Figure:
+    """Barre horizontale par dimension. Si top=None affiche tout."""
+    data = kpi.distribution(df, mois, column, top=top)
+    if data.empty:
+        fig = go.Figure()
+        fig.add_annotation(text="Donnée indisponible", showarrow=False, font=dict(color="#475569"))
+        return apply_plotly_theme(fig, height)
+    sorted_data = data.sort_values("nombre_tickets")
+    dynamic_height = max(height, 28 * len(sorted_data) + 60)
     fig = px.bar(
-        data.sort_values("nombre_tickets"),
+        sorted_data,
         x="nombre_tickets",
         y=column,
         orientation="h",
@@ -1305,10 +1204,12 @@ def top_horizontal_bar(df: pd.DataFrame, mois: str, column: str, label: str) -> 
         color_discrete_sequence=[COLORS["blue"]],
         labels={"nombre_tickets": "Tickets", column: label},
     )
+    fig.update_traces(textposition="outside")
     fig.update_layout(showlegend=False)
     fig.update_xaxes(showgrid=False)
     fig.update_yaxes(title=None)
-    return apply_plotly_theme(fig, 255)
+    return apply_plotly_theme(fig, dynamic_height)
+
 
 
 def subjects_by_month(df: pd.DataFrame) -> go.Figure:
@@ -1361,14 +1262,16 @@ def selected_month_subjects(df: pd.DataFrame, mois: str) -> go.Figure:
 
 def last_tickets_table(df: pd.DataFrame, mois: str) -> pd.DataFrame:
     data = kpi.filter_opened_month(df, mois).sort_values("date_ouverture", ascending=False).head(6)
-    columns = ["ticket_id", "date_ouverture", "beneficiaire", "categorie", "statut", "site"]
-    table = data[columns].copy()
-    table["date_ouverture"] = table["date_ouverture"].dt.strftime("%d/%m/%Y")
+    # Jamais de colonne nominative (beneficiaire) — ID technique uniquement
+    columns = ["ticket_id", "date_ouverture", "categorie", "statut", "site"]
+    available = [c for c in columns if c in data.columns]
+    table = data[available].copy()
+    if "date_ouverture" in table.columns:
+        table["date_ouverture"] = table["date_ouverture"].dt.strftime("%d/%m/%Y")
     return table.rename(
         columns={
             "ticket_id": "N ticket",
             "date_ouverture": "Date",
-            "beneficiaire": "Beneficiaire",
             "categorie": "Sujet",
             "statut": "Etat",
             "site": "Site",
@@ -1376,97 +1279,810 @@ def last_tickets_table(df: pd.DataFrame, mois: str) -> pd.DataFrame:
     )
 
 
+def site_pole_heatmap(df: pd.DataFrame, mois: str) -> go.Figure:
+    """Graphique croisé Site x Pôle (bar groupé)."""
+    data = kpi.tickets_by_site_pole(df, mois)
+    if data.empty:
+        fig = go.Figure()
+        fig.add_annotation(text="Donnée indisponible", showarrow=False, font=dict(color="#475569"))
+        return apply_plotly_theme(fig, 280)
+    fig = px.bar(
+        data,
+            unsafe_allow_html=True,
+        )
+
+
+def show_smart_insights(df: pd.DataFrame, mois: str) -> None:
+    for insight in insights.generate_month_insights(df, mois):
+        css_class = "alert-red" if insight["level"] == "red" else "source-ok"
+        st.markdown(
+            f"""
+            <div class="{css_class}">
+                {insight["title"]}: {insight["message"]}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def status_donut(df: pd.DataFrame, mois: str) -> go.Figure:
+    data = kpi.filter_opened_month(df, mois)
+    status = data.groupby("statut", as_index=False).size().rename(columns={"size": "tickets"})
+    fig = px.pie(
+        status,
+        names="statut",
+        values="tickets",
+        hole=0.62,
+        color_discrete_sequence=PALETTE,
+    )
+    fig.update_traces(textinfo="percent", textfont_size=13)
+    fig.update_layout(showlegend=True)
+    return apply_plotly_theme(fig, 260)
+
+
+def satisfaction_donut(df: pd.DataFrame, mois: str) -> go.Figure:
+    responses = df.attrs.get("satisfaction_responses")
+    if responses is None or responses.empty:
+        counts = pd.DataFrame({"note": ["Donnee indisponible"], "tickets": [1]})
+    else:
+        if "mois_enquete" in responses.columns and responses["mois_enquete"].notna().any():
+            scoped = responses[responses["mois_enquete"].eq(mois)]
+            if scoped.empty:
+                scoped = responses
+        else:
+            scoped = responses
+        bins = scoped["satisfaction_traitement"].dropna().round().astype(int).astype(str) + "/5"
+        if bins.empty:
+            bins = pd.Series(["Donnee indisponible"])
+        counts = bins.value_counts().reset_index()
+    counts.columns = ["note", "tickets"]
+    fig = px.pie(counts, names="note", values="tickets", hole=0.62, color_discrete_sequence=PALETTE)
+    fig.update_traces(textinfo="percent", textfont_size=13)
+    fig.update_layout(showlegend=True)
+    return apply_plotly_theme(fig, 260)
+
+
+def monthly_line(df: pd.DataFrame) -> go.Figure:
+    monthly = kpi.monthly_summary(df)
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=monthly["mois"],
+            y=monthly["total_ouverts"],
+            mode="lines+markers+text",
+            text=monthly["total_ouverts"],
+            textposition="top center",
+            name="Ouverts",
+            line=dict(color=COLORS["blue"], width=3, shape="spline"),
+            marker=dict(size=7),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=monthly["mois"],
+            y=monthly["total_fermes"],
+            mode="lines+markers",
+            name="Fermes",
+            line=dict(color=COLORS["green"], width=3, shape="spline"),
+            marker=dict(size=7),
+        )
+    )
+    fig.update_layout(
+        legend_title_text="",
+    )
+    fig.update_xaxes(showgrid=False)
+    return apply_plotly_theme(fig, 260)
+
+
+def top_horizontal_bar(
+    df: pd.DataFrame,
+    mois: str,
+    column: str,
+    label: str,
+    top: int | None = None,
+    height: int = 280,
+) -> go.Figure:
+    """Barre horizontale par dimension. Si top=None affiche tout."""
+    data = kpi.distribution(df, mois, column, top=top)
+    if data.empty:
+        fig = go.Figure()
+        fig.add_annotation(text="Donnée indisponible", showarrow=False, font=dict(color="#475569"))
+        return apply_plotly_theme(fig, height)
+    sorted_data = data.sort_values("nombre_tickets")
+    dynamic_height = max(height, 28 * len(sorted_data) + 60)
+    fig = px.bar(
+        sorted_data,
+        x="nombre_tickets",
+        y=column,
+        orientation="h",
+        text="nombre_tickets",
+        color_discrete_sequence=[COLORS["blue"]],
+        labels={"nombre_tickets": "Tickets", column: label},
+    )
+    fig.update_traces(textposition="outside")
+    fig.update_layout(showlegend=False)
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(title=None)
+    return apply_plotly_theme(fig, dynamic_height)
+
+
+
+def subjects_by_month(df: pd.DataFrame) -> go.Figure:
+    top_subjects = (
+        df.groupby("categorie", as_index=False)
+        .size()
+        .rename(columns={"size": "tickets"})
+        .sort_values("tickets", ascending=False)
+        .head(5)["categorie"]
+    )
+    data = df[df["categorie"].isin(top_subjects)]
+    monthly_subjects = (
+        data.groupby(["mois_ouverture", "categorie"], as_index=False)
+        .size()
+        .rename(columns={"size": "tickets"})
+        .sort_values("mois_ouverture")
+    )
+    fig = px.bar(
+        monthly_subjects,
+        x="mois_ouverture",
+        y="tickets",
+        color="categorie",
+        color_discrete_sequence=PALETTE,
+        labels={"mois_ouverture": "Mois", "tickets": "Demandes ouvertes", "categorie": "Sujet"},
+    )
+    fig.update_layout(
+        legend_title_text="",
+    )
+    fig.update_xaxes(showgrid=False)
+    return apply_plotly_theme(fig, 260)
+
+
+def selected_month_subjects(df: pd.DataFrame, mois: str) -> go.Figure:
+    data = kpi.subjects_opened_month(df, mois, top=10)
+    fig = px.bar(
+        data,
+        x="categorie",
+        y="nombre_tickets",
+        color="categorie",
+        text="nombre_tickets",
+        color_discrete_sequence=PALETTE,
+        labels={"categorie": "Sujet", "nombre_tickets": "Demandes ouvertes"},
+    )
+    fig.update_layout(
+        showlegend=False,
+    )
+    fig.update_xaxes(tickangle=30)
+    return apply_plotly_theme(fig, 260)
+
+
+def last_tickets_table(df: pd.DataFrame, mois: str) -> pd.DataFrame:
+    data = kpi.filter_opened_month(df, mois).sort_values("date_ouverture", ascending=False).head(6)
+    # Jamais de colonne nominative (beneficiaire) — ID technique uniquement
+    columns = ["ticket_id", "date_ouverture", "categorie", "statut", "site"]
+    available = [c for c in columns if c in data.columns]
+    table = data[available].copy()
+    if "date_ouverture" in table.columns:
+        table["date_ouverture"] = table["date_ouverture"].dt.strftime("%d/%m/%Y")
+    return table.rename(
+        columns={
+            "ticket_id": "N ticket",
+            "date_ouverture": "Date",
+            "categorie": "Sujet",
+            "statut": "Etat",
+            "site": "Site",
+        }
+    )
+
+
+def site_pole_heatmap(df: pd.DataFrame, mois: str) -> go.Figure:
+    """Graphique croisé Site x Pôle (bar groupé)."""
+    data = kpi.tickets_by_site_pole(df, mois)
+    if data.empty:
+        fig = go.Figure()
+        fig.add_annotation(text="Donnée indisponible", showarrow=False, font=dict(color="#475569"))
+        return apply_plotly_theme(fig, 280)
+    fig = px.bar(
+        data,
+        x="site",
+        y="nombre_tickets",
+        color="pole",
+        barmode="group",
+        text="nombre_tickets",
+        color_discrete_sequence=PALETTE,
+        labels={"site": "Site", "nombre_tickets": "Tickets ouverts", "pole": "Pôle"},
+    )
+    fig.update_traces(textposition="outside", textfont_size=11)
+    fig.update_layout(legend_title_text="Pôle")
+    fig.update_xaxes(showgrid=False)
+    return apply_plotly_theme(fig, 280)
+
+
+def rubrique_bar(detail: "kpi.RubriqueDetail | None", label: str) -> go.Figure:
+    """Mini-bar horizontale montrant la distribution par niveau pour une rubrique."""
+    categories = [
+        "Très insatisfait", "Plutôt insatisfait",
+        "Insatisfait", "Satisfait", "Très satisfait",
+    ]
+    colors_map = {
+        "Très insatisfait": "#ef4444",
+        "Plutôt insatisfait": "#f97316",
+        "Insatisfait": "#eab308",
+        "Satisfait": "#22c55e",
+        "Très satisfait": "#10b981",
+    }
+    if detail is None:
+        counts = [0] * 5
+    else:
+        counts = [
+            detail.tres_insatisfait,
+            detail.plutot_insatisfait,
+            detail.insatisfait,
+            detail.satisfait,
+            detail.tres_satisfait,
+        ]
+    fig = go.Figure()
+    for cat, cnt, color in zip(categories, counts, colors_map.values()):
+        fig.add_trace(go.Bar(
+            name=cat,
+            x=[cnt],
+            y=[label],
+            orientation="h",
+            marker_color=color,
+            text=[cnt] if cnt > 0 else [""],
+            textposition="inside",
+            insidetextanchor="middle",
+        ))
+    fig.update_layout(
+        barmode="stack",
+        showlegend=False,
+        margin=dict(l=0, r=0, t=4, b=4),
+    )
+    return apply_plotly_theme(fig, 56)
+
+
+def _month_excel_label(mois: str) -> str:
+    month_names = {
+        "01": "janv", "02": "févr", "03": "mars", "04": "avr",
+        "05": "mai", "06": "juin", "07": "juil", "08": "août",
+        "09": "sept", "10": "oct", "11": "nov", "12": "déc",
+    }
+    try:
+        year, month = mois.split("-")
+        return f"{month_names.get(month, month)}-{year[-2:]}"
+    except ValueError:
+        return mois
+
+
+def official_site_pole_table_html(df: pd.DataFrame, mois: str) -> str:
+    data = kpi.tickets_by_site_pole(df, mois)
+    rows = []
+    for label, site, pole in OFFICIAL_SITE_POLES:
+        if data.empty:
+            value = 0
+        else:
+            matched = data[
+                data["site"].astype(str).str.casefold().eq(site.casefold())
+                & data["pole"].astype(str).str.casefold().eq(pole.casefold())
+            ]
+            value = int(matched["nombre_tickets"].sum()) if not matched.empty else 0
+        rows.append((label, value))
+
+    body = "".join(
+        f"<tr><th style='border:1px solid #000;padding:2px 10px;text-align:center;font-weight:700;background:#fff;color:#000;'>{html.escape(label)}</th><td style='border:1px solid #000;padding:2px 10px;text-align:center;background:#fff;color:#000;'>{value}</td></tr>"
+        for label, value in rows
+    )
+    return f"""
+    <table class="official-tdb-table" style="width:100%;border-collapse:collapse;margin:6px 0 14px 0;background:#fff;color:#000;font-family:Calibri,Arial,sans-serif;font-size:15px;">
+        <thead><tr><th style="border:1px solid #000;padding:4px 10px;background:#fff;color:#000;"></th><th style="border:1px solid #000;padding:4px 10px;text-align:center;font-weight:700;background:#fff;color:#000;">{html.escape(_month_excel_label(mois))}</th></tr></thead>
+        <tbody>{body}</tbody>
+    </table>
+    """
+
+
+def echarts_kpi_bar(total_ouverts: int, ouverts_fermes: int, total_fermes: int, height: str = "280px") -> None:
+    """ECharts 3-bar KPI chart matching TDB 'demandes de services'."""
+    options = {
+        "tooltip": {
+            "trigger": "axis",
+            "axisPointer": {"type": "shadow"},
+            "backgroundColor": "rgba(22, 22, 31, 0.95)",
+            "borderColor": "rgba(124, 58, 237, 0.3)",
+            "textStyle": {"color": "#e2e8f0"}
+        },
+        "grid": {"top": "15%", "bottom": "18%", "left": "4%", "right": "4%", "containLabel": True},
+        "xAxis": {
+            "type": "category",
+            "data": ["Demandes ouvertes\nsur le mois", "Demandes ouvertes et\ntraitées sur le mois", "Demandes globales\ntraitées sur le mois"],
+            "axisLabel": {"interval": 0, "color": "#94a3b8", "fontSize": 10},
+            "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.1)"}}
+        },
+        "yAxis": {
+            "type": "value",
+            "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.06)"}},
+            "axisLabel": {"color": "#94a3b8"}
+        },
+        "series": [
+            {
+                "type": "bar",
+                "barWidth": "42%",
+                "data": [
+                    {"value": total_ouverts, "itemStyle": {"color": "#4472C4", "borderRadius": [5, 5, 0, 0]}},
+                    {"value": ouverts_fermes, "itemStyle": {"color": "#ED7D31", "borderRadius": [5, 5, 0, 0]}},
+                    {"value": total_fermes, "itemStyle": {"color": "#A5A5A5", "borderRadius": [5, 5, 0, 0]}},
+                ],
+                "label": {
+                    "show": True,
+                    "position": "top",
+                    "color": "#f8fafc",
+                    "fontWeight": "bold",
+                    "fontSize": 13
+                }
+            }
+        ]
+    }
+    st_echarts(options=options, height=height, theme="dark")
+
+
+def echarts_site_pie(df_site: pd.DataFrame, height: str = "280px") -> None:
+    """ECharts doughnut chart for site distribution."""
+    if df_site.empty:
+        st.info("Donnée indisponible")
+        return
+    data = [{"name": row["site"].replace("Tunisie/", ""), "value": int(row["nombre_tickets"])} for _, row in df_site.iterrows()]
+    options = {
+        "title": {
+            "text": "demandes de services par site",
+            "left": "center",
+            "top": "0%",
+            "textStyle": {"color": "#e2e8f0", "fontSize": 13, "fontWeight": "bold"}
+        },
+        "tooltip": {"trigger": "item", "formatter": "{b}: {c} ({d}%)"},
+        "legend": {
+            "bottom": "0%",
+            "textStyle": {"color": "#94a3b8", "fontSize": 11}
+        },
+        "color": ["#4472C4", "#ED7D31", "#A5A5A5", "#FFC000", "#5B9BD5"],
+        "series": [
+            {
+                "name": "Site",
+                "type": "pie",
+                "radius": ["38%", "68%"],
+                "center": ["50%", "48%"],
+                "avoidLabelOverlap": True,
+                "itemStyle": {"borderRadius": 5, "borderColor": "#16161f", "borderWidth": 2},
+                "label": {"show": True, "formatter": "{b}\n{d}%", "color": "#e2e8f0", "fontSize": 10},
+                "emphasis": {
+                    "label": {"show": True, "fontSize": 12, "fontWeight": "bold"},
+                    "itemStyle": {"shadowBlur": 10, "shadowOffsetX": 0, "shadowColor": "rgba(0, 0, 0, 0.5)"}
+                },
+                "data": data
+            }
+        ]
+    }
+    st_echarts(options=options, height=height, theme="dark")
+
+
+def echarts_pole_pie(site_data: pd.DataFrame, title: str, height: str = "240px") -> None:
+    """ECharts mini-pie chart for per-site pôle distribution."""
+    if site_data.empty:
+        return
+    data = [{"name": row["pole"], "value": int(row["nombre_tickets"])} for _, row in site_data.iterrows()]
+    options = {
+        "title": {
+            "text": title,
+            "left": "center",
+            "top": "2%",
+            "textStyle": {"color": "#e2e8f0", "fontSize": 11, "fontWeight": "bold"}
+        },
+        "tooltip": {"trigger": "item", "formatter": "{b}: {c} ({d}%)"},
+        "legend": {
+            "bottom": "0%",
+            "textStyle": {"color": "#94a3b8", "fontSize": 9},
+            "itemWidth": 10,
+            "itemHeight": 8
+        },
+        "color": ["#4472C4", "#ED7D31", "#A5A5A5", "#FFC000", "#5B9BD5", "#70AD47"],
+        "series": [
+            {
+                "type": "pie",
+                "radius": ["32%", "62%"],
+                "center": ["50%", "45%"],
+                "itemStyle": {"borderRadius": 4, "borderColor": "#16161f", "borderWidth": 1},
+                "label": {"show": True, "formatter": "{c}", "fontSize": 9, "color": "#cbd5e1"},
+                "data": data
+            }
+        ]
+    }
+    st_echarts(options=options, height=height, theme="dark")
+
+
+def echarts_subjects_bar(df_sujets: pd.DataFrame, mois: str, height: str = "380px") -> None:
+    """ECharts vertical bar chart with dynamic dataZoom slider."""
+    if df_sujets.empty:
+        st.info("Donnée indisponible")
+        return
+    sorted_df = df_sujets.sort_values("nombre_tickets", ascending=False)
+    categories = sorted_df["categorie"].tolist()
+    values = sorted_df["nombre_tickets"].tolist()
+    end_pct = min(100, max(25, int(12 / max(len(categories), 1) * 100)))
+    options = {
+        "title": {
+            "text": f"type des demandes ouvertes dans le mois de {mois}",
+            "left": "center",
+            "top": "1%",
+            "textStyle": {"color": "#e2e8f0", "fontSize": 12}
+        },
+        "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+        "toolbox": {
+            "feature": {"dataView": {"readOnly": True}, "saveAsImage": {}},
+            "iconStyle": {"borderColor": "#94a3b8"}
+        },
+        "dataZoom": [
+            {"type": "inside", "start": 0, "end": 100},
+            {"type": "slider", "start": 0, "end": end_pct, "height": 18, "bottom": "0%", "borderColor": "rgba(255,255,255,0.1)", "fillerColor": "rgba(68,114,196,0.25)"}
+        ],
+        "grid": {"left": "3%", "right": "3%", "bottom": "18%", "top": "14%", "containLabel": True},
+        "xAxis": {
+            "type": "category",
+            "data": categories,
+            "axisLabel": {"interval": 0, "rotate": 45, "color": "#94a3b8", "fontSize": 9}
+        },
+        "yAxis": {
+            "type": "value",
+            "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.06)"}},
+            "axisLabel": {"color": "#94a3b8"}
+        },
+        "series": [
+            {
+                "type": "bar",
+                "data": values,
+                "itemStyle": {"color": "#4472C4", "borderRadius": [4, 4, 0, 0]},
+                "label": {"show": True, "position": "top", "color": "#cbd5e1", "fontSize": 9}
+            }
+        ]
+    }
+    st_echarts(options=options, height=height, theme="dark")
+
+
+def echarts_satisfaction_grouped_bar(tdb_df: pd.DataFrame, mois: str, height: str = "360px") -> None:
+    """ECharts grouped bar chart matching official satisfaction report."""
+    rubriques = ["Satisfaction de traitement", "Communication des opérateurs", "Satisfaction du temps de traitement"]
+    categories = ["très insatisfait", "Plutôt insatisfait", "insatisfait", "Satisfait", "très satisfait"]
+    colors = ["#C00000", "#ED7D31", "#FFC000", "#92D050", "#00B050"]
+    series = []
+    for cat, col in zip(categories, colors):
+        vals = [int(tdb_df.loc[r, cat]) if r in tdb_df.index and cat in tdb_df.columns else 0 for r in rubriques]
+        series.append({
+            "name": cat,
+            "type": "bar",
+            "data": vals,
+            "itemStyle": {"color": col, "borderRadius": [3, 3, 0, 0]},
+            "label": {"show": True, "position": "top", "color": "#e2e8f0", "fontSize": 8}
+        })
+    options = {
+        "title": {
+            "text": f"satisfaction de traitement — {mois}",
+            "left": "center",
+            "top": "2%",
+            "textStyle": {"color": "#e2e8f0", "fontSize": 12}
+        },
+        "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+        "legend": {"bottom": "0%", "data": categories, "textStyle": {"color": "#94a3b8", "fontSize": 9}},
+        "grid": {"left": "3%", "right": "3%", "bottom": "16%", "top": "15%", "containLabel": True},
+        "xAxis": {
+            "type": "category",
+            "data": ["Satisfaction\ntraitement", "Communication\nopérateurs", "Temps de\ntraitement"],
+            "axisLabel": {"color": "#cbd5e1", "fontSize": 10}
+        },
+        "yAxis": {
+            "type": "value",
+            "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.06)"}},
+            "axisLabel": {"color": "#94a3b8"}
+        },
+        "series": series
+    }
+    st_echarts(options=options, height=height, theme="dark")
+
+
+def echarts_satisfaction_donut(sat_pct: float, height: str = "280px") -> None:
+    """ECharts satisfaction ring chart."""
+    insat = max(0.0, 100.0 - sat_pct)
+    options = {
+        "title": {
+            "text": f"{sat_pct:.2f}%",
+            "subtext": "Satisfaction",
+            "left": "center",
+            "top": "36%",
+            "textStyle": {"color": "#00B050", "fontSize": 22, "fontWeight": "bold"},
+            "subtextStyle": {"color": "#94a3b8", "fontSize": 11}
+        },
+        "tooltip": {"trigger": "item", "formatter": "{b}: {c}%"},
+        "legend": {"bottom": "0%", "textStyle": {"color": "#94a3b8", "fontSize": 10}},
+        "series": [
+            {
+                "type": "pie",
+                "radius": ["55%", "75%"],
+                "center": ["50%", "48%"],
+                "avoidLabelOverlap": False,
+                "label": {"show": False},
+                "data": [
+                    {"value": round(sat_pct, 2), "name": "Satisfait / Très satisfait", "itemStyle": {"color": "#00B050", "borderRadius": 6}},
+                    {"value": round(insat, 2), "name": "Insatisfait / Autres", "itemStyle": {"color": "#C00000", "borderRadius": 6}},
+                ]
+            }
+        ]
+    }
+    st_echarts(options=options, height=height, theme="dark")
+
+
+def echarts_rubriques_stacked(sat: kpi.SatisfactionResult, height: str = "280px") -> None:
+    """ECharts horizontal stacked bar chart for satisfaction rubriques."""
+    rubriques = ["Satisfaction traitement", "Communication opérateurs", "Temps traitement"]
+    details = [sat.detail_traitement, sat.detail_communication, sat.detail_temps]
+    categories = ["très insatisfait", "Plutôt insatisfait", "insatisfait", "Satisfait", "très satisfait"]
+    colors = ["#C00000", "#ED7D31", "#FFC000", "#92D050", "#00B050"]
+    attrs = ["tres_insatisfait", "plutot_insatisfait", "insatisfait", "satisfait", "tres_satisfait"]
+    series = []
+    for cat, col, attr in zip(categories, colors, attrs):
+        vals = [getattr(d, attr, 0) if d else 0 for d in details]
+        series.append({
+            "name": cat,
+            "type": "bar",
+            "stack": "total",
+            "itemStyle": {"color": col},
+            "label": {"show": True, "fontSize": 9},
+            "emphasis": {"focus": "series"},
+            "data": vals
+        })
+    options = {
+        "title": {"text": "Répartition par rubrique", "left": "center", "top": "2%", "textStyle": {"color": "#e2e8f0", "fontSize": 11}},
+        "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+        "legend": {"bottom": "0%", "data": categories, "textStyle": {"color": "#94a3b8", "fontSize": 9}},
+        "grid": {"left": "3%", "right": "4%", "bottom": "15%", "top": "15%", "containLabel": True},
+        "xAxis": {"type": "value", "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.06)"}}, "axisLabel": {"color": "#94a3b8"}},
+        "yAxis": {"type": "category", "data": rubriques, "axisLabel": {"color": "#cbd5e1", "fontSize": 10}},
+        "series": series
+    }
+    st_echarts(options=options, height=height, theme="dark")
+
+
 def show_dashboard(df: pd.DataFrame, mois: str, source_label: str) -> None:
     result = kpi.calculate_month_kpi(df, mois)
-    source_class = "source-ok" if "Import" in source_label or "Chemin" in source_label else "source-warn"
+    sat = result.satisfaction
+    source_class = "source-ok" if "Import" in source_label or "Chemin" in source_label or "officielles" in source_label else "source-warn"
+
     st.markdown(
-        f"""
-        <div class="upload-hero">
-            <div class="upload-hero-title">Input ASKit actif</div>
-            <div class="upload-hero-text">
-                La zone drag and drop est disponible dans la barre laterale. Source actuellement utilisee:
-                <strong>{source_label}</strong>.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        f'<div class="{source_class}">Source active: {source_label}. Tous les KPI et graphes sont calcules depuis ces donnees.</div>',
+        f'<div class="{source_class}">Source : {source_label}</div>',
         unsafe_allow_html=True,
     )
     show_alerts(df, mois)
     show_smart_insights(df, mois)
 
-    cards = st.columns(5)
-    with cards[0]:
-        kpi_card("Tickets ouverts", str(result.total_ouverts), "O", COLORS["blue"])
-    with cards[1]:
-        kpi_card("Tickets fermes", str(result.total_fermes), "F", COLORS["purple"])
-    with cards[2]:
-        kpi_card("Ouverts et fermes", fmt(result.ouverts_et_fermes_meme_mois), "M", COLORS["pink"])
-    with cards[3]:
-        kpi_card("Delai moyen", fmt(result.delai_moyen_heures, " h"), "D", COLORS["yellow"])
-    with cards[4]:
-        kpi_card("Satisfaction", fmt(result.satisfaction_moyenne, " / 5"), "S", COLORS["orange"])
+    # ══════════════════════════════════════════════════════════════════
+    # ROW 1 — KPI Metrics Cards (Style ECharts Showcase)
+    # ══════════════════════════════════════════════════════════════════
+    kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
+    with kpi_col1:
+        st.metric(
+            "Demandes ouvertes",
+            f"{result.total_ouverts:,}",
+        )
+    with kpi_col2:
+        val_fermes = f"{result.total_fermes:,}" if result.total_fermes is not None else "N/A"
+        st.metric(
+            "Globales traitées",
+            val_fermes,
+        )
+    with kpi_col3:
+        st.metric(
+            "Délai moyen",
+            _format_delay(result.delai_moyen_minutes),
+        )
+    with kpi_col4:
+        sat_str = f"{sat.satisfaction_globale:.1f} %" if sat.satisfaction_globale is not None else "N/A"
+        st.metric(
+            "Satisfaction globale",
+            sat_str,
+        )
 
-    row1_left, row1_mid, row1_right = st.columns([1.05, 1.05, 2.15])
-    with row1_left:
-        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-        chart_card_title("Tickets par statut")
-        st.plotly_chart(status_donut(df, mois), use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    with row1_mid:
-        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-        chart_card_title("Satisfaction")
-        st.plotly_chart(satisfaction_donut(df, mois), use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    with row1_right:
-        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-        chart_card_title("Tendance mensuelle", "Ouverts vs fermes")
-        st.plotly_chart(monthly_line(df), use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+    # ══════════════════════════════════════════════════════════════════
+    # SECTION 1 — Demandes de services (Tableau + ECharts 3D Bar)
+    # ══════════════════════════════════════════════════════════════════
+    st.subheader(":material/trending_up: Demandes de services")
+    st.caption(f"Synthèse d'activité pour le mois de {mois}")
+    with st.container(border=True):
+        kpi_data = {
+            "Indicateur": [
+                "Nbr des demandes ouvertes sur le mois",
+                "Nbr des demandes ouvertes et traitées sur le mois",
+                "Nbr des demandes globales Traitées sur le mois",
+                "Délai moyen de traitement des tickets",
+            ],
+            "Valeur": [
+                str(result.total_ouverts),
+                str(result.ouverts_et_fermes_meme_mois) if result.ouverts_et_fermes_meme_mois is not None else "N/A",
+                str(result.total_fermes) if result.total_fermes is not None else "N/A",
+                _format_delay(result.delai_moyen_minutes),
+            ],
+        }
+        s1_left, s1_right = st.columns([1.1, 1.5])
+        with s1_left:
+            st.dataframe(
+                pd.DataFrame(kpi_data),
+                use_container_width=True,
+                hide_index=True,
+            )
+        with s1_right:
+            echarts_kpi_bar(
+                result.total_ouverts,
+                result.ouverts_et_fermes_meme_mois or 0,
+                result.total_fermes or 0,
+                height="280px"
+            )
 
-    row2_left, row2_right = st.columns([1.2, 2.0])
-    with row2_left:
-        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-        chart_card_title("Top 5 sites")
-        st.plotly_chart(top_horizontal_bar(df, mois, "site", "Site"), use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    with row2_right:
-        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-        chart_card_title("Derniers tickets ouverts")
-        st.dataframe(last_tickets_table(df, mois), use_container_width=True, hide_index=True, height=255)
-        st.markdown("</div>", unsafe_allow_html=True)
+    # ══════════════════════════════════════════════════════════════════
+    # SECTION 2 — Répartition Site & Pôle (Tableau officiel + ECharts)
+    # ══════════════════════════════════════════════════════════════════
+    st.subheader(":material/pie_chart: Répartition par site et pôle")
+    st.caption("Distribution des demandes ouvertes par localisation géographique et direction métier")
+    with st.container(border=True):
+        df_site = kpi.tickets_by_site(df, mois)
+        df_sp = kpi.tickets_by_site_pole(df, mois)
 
-    row3_left, row3_right = st.columns([1.2, 2.0])
-    with row3_left:
-        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-        chart_card_title("Top 5 sujets du mois", "Tickets ouverts du mois groupes par Sujet")
-        st.plotly_chart(top_horizontal_bar(df, mois, "categorie", "Sujet"), use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+        s2_tbl, s2_pie = st.columns([1.1, 1.5])
+        with s2_tbl:
+            if not df_site.empty:
+                st.dataframe(
+                    df_site.rename(columns={"site": "Site", "nombre_tickets": "Tickets ouverts"}),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            st.markdown(official_site_pole_table_html(df, mois), unsafe_allow_html=True)
 
-    st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-    chart_card_title(
-        "Satisfaction detaillee",
-        "Moyennes issues du fichier enquete; fallback global si la date enquete est inexploitable",
-    )
-    sat = result.satisfaction
-    cols = st.columns(4)
-    cols[0].metric("Traitement", fmt(sat.satisfaction_globale, " / 5"))
-    cols[1].metric("Communication", fmt(sat.communication, " / 5"))
-    cols[2].metric("Temps percu", fmt(sat.temps_percu, " / 5"))
-    cols[3].metric("Participation", fmt(sat.taux_participation, " %"))
-    if sat.rubrique_moins_satisfaisante:
-        st.caption(f"Rubrique la moins satisfaisante: {sat.rubrique_moins_satisfaisante}")
-    if sat.fallback_global:
-        st.warning("Satisfaction affichee en moyenne globale: aucune reponse exploitable pour le mois selectionne.")
-    st.markdown("</div>", unsafe_allow_html=True)
-    with row3_right:
-        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-        chart_card_title("Sujets ouverts du mois", "Tri du plus frequent au moins frequent")
-        st.plotly_chart(selected_month_subjects(df, mois), use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+        with s2_pie:
+            echarts_site_pie(df_site, height="300px")
+
+        if not df_sp.empty:
+            sites = df_site["site"].tolist() if not df_site.empty else df_sp["site"].unique().tolist()
+            cols_poles = st.columns(min(len(sites), 3))
+            for i, site_name in enumerate(sites[:3]):
+                site_data = df_sp[df_sp["site"].eq(site_name)]
+                if site_data.empty:
+                    continue
+                with cols_poles[i]:
+                    short_name = site_name.replace("Tunisie/", "")
+                    echarts_pole_pie(site_data, f"{short_name} répartition par pole", height="240px")
+
+    # ══════════════════════════════════════════════════════════════════
+    # SECTION 3 — Types de demandes ouvertes (Tableau + ECharts Zoom)
+    # ══════════════════════════════════════════════════════════════════
+    st.subheader(":material/category: Types des demandes ouvertes")
+    st.caption(f"Détail des sujets de demandes pour {mois}")
+    with st.container(border=True):
+        df_sujets = kpi.subjects_opened_month(df, mois)
+        s3a, s3b = st.columns([1, 1.8])
+        with s3a:
+            if not df_sujets.empty:
+                st.dataframe(
+                    df_sujets.rename(columns={"categorie": "Sujet", "nombre_tickets": "Tickets"}),
+                    use_container_width=True,
+                    hide_index=True,
+                    height=min(480, 28 * len(df_sujets) + 40),
+                )
+        with s3b:
+            echarts_subjects_bar(df_sujets, mois, height="450px")
+
+    # ══════════════════════════════════════════════════════════════════
+    # SECTION 4 — Satisfaction (Tableau 3x5 + ECharts Grouped Bar + Donut)
+    # ══════════════════════════════════════════════════════════════════
+    st.subheader(":material/sentiment_satisfied: Enquête de satisfaction ASKit")
+    st.caption("Notes de 1 à 5 · Taux = (note ≥ 4) / réponses combinées × 100")
+    with st.container(border=True):
+        if sat.fallback_global:
+            st.warning("Mode fallback : aucune date d'enquête pour le mois — données globales utilisées.")
+
+        def _d(detail):
+            if detail is None:
+                return {"très insatisfait": 0, "Plutôt insatisfait": 0, "insatisfait": 0, "Satisfait": 0, "très satisfait": 0}
+            return {
+                "très insatisfait": detail.tres_insatisfait,
+                "Plutôt insatisfait": detail.plutot_insatisfait,
+                "insatisfait": detail.insatisfait,
+                "Satisfait": detail.satisfait,
+                "très satisfait": detail.tres_satisfait,
+            }
+
+        tdb_rows = [
+            {"Rubrique": "Satisfaction de traitement",           **_d(sat.detail_traitement)},
+            {"Rubrique": "Communication des opérateurs",          **_d(sat.detail_communication)},
+            {"Rubrique": "Satisfaction du temps de traitement",   **_d(sat.detail_temps)},
+        ]
+        tdb_df = pd.DataFrame(tdb_rows).set_index("Rubrique")
+        total_all = tdb_df.values.sum()
+        if total_all > 0:
+            taux_row = {col: f"{tdb_df[col].sum() / total_all * 100:.2f}%" for col in tdb_df.columns}
+        else:
+            taux_row = {col: "N/A" for col in tdb_df.columns}
+        taux_df = pd.DataFrame([taux_row], index=["taux de satisfaction"])
+
+        s4_left, s4_right = st.columns([1.1, 1.5])
+        with s4_left:
+            st.dataframe(tdb_df, use_container_width=True)
+            st.dataframe(taux_df, use_container_width=True)
+        with s4_right:
+            echarts_satisfaction_grouped_bar(tdb_df, mois, height="340px")
+
+        st.markdown("---")
+        ms1, ms2, ms3 = st.columns(3)
+        ms1.metric(
+            "Demandes globales traitées",
+            str(result.total_fermes) if result.total_fermes is not None else "N/A",
+        )
+        ms2.metric("Participants à l'enquête", str(sat.nombre_reponses))
+        ms3.metric(
+            "Taux de participation",
+            f"{sat.taux_participation:.2f} %" if sat.taux_participation is not None else "N/A",
+        )
+
+        st.markdown("---")
+        sd1, sd2 = st.columns([1, 1.5])
+        with sd1:
+            sat_pct = sat.satisfaction_globale if sat.satisfaction_globale is not None else 0.0
+            echarts_satisfaction_donut(sat_pct, height="280px")
+        with sd2:
+            echarts_rubriques_stacked(sat, height="280px")
+
+        st.markdown("---")
+        chart_card_title("Les rubriques les moins satisfaisantes")
+        if sat.rubrique_moins_satisfaisante:
+            st.markdown(
+                f'<div style="background:#FFC7CE;color:#9C0006;padding:12px 16px;border-radius:8px;'
+                f'font-weight:700;font-size:14px;margin-bottom:8px">'
+                f'⚠️ Rubrique la moins satisfaisante : {sat.rubrique_moins_satisfaisante}</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.success("Toutes les rubriques sont à 100% de satisfaction.")
+
+        insatisf_data = []
+        for label, detail in [
+            ("Satisfaction de traitement", sat.detail_traitement),
+            ("Communication de l'opérateur", sat.detail_communication),
+            ("temps de résolution", sat.detail_temps),
+        ]:
+            if detail:
+                insatisf_data.append({
+                    "Rubrique": label,
+                    "très insatisfait": detail.tres_insatisfait,
+                    "plutôt insatisfait": detail.plutot_insatisfait,
+                    "insatisfait": detail.insatisfait,
+                })
+            else:
+                insatisf_data.append({
+                    "Rubrique": label,
+                    "très insatisfait": 0,
+                    "plutôt insatisfait": 0,
+                    "insatisfait": 0,
+                })
+        if insatisf_data:
+            st.dataframe(
+                pd.DataFrame(insatisf_data).set_index("Rubrique"),
+                use_container_width=True,
+            )
+
+
+
+def _format_delay(minutes: float | None) -> str:
+    """Formate le délai en 'Xj Yh Zmin' comme dans le TDB officiel."""
+    if minutes is None:
+        return "N/A"
+    h = int(minutes // 60)
+    m = int(minutes % 60)
+    j = h // 24
+    hh = h % 24
+    if j > 0:
+        return f"{j}j {hh:02d}h{m:02d}min"
+    return f"{h:02d}h{m:02d}min"
 
 
 def show_comparison(df: pd.DataFrame, months: list[str], default_month: str) -> None:
@@ -1474,146 +2090,226 @@ def show_comparison(df: pd.DataFrame, months: list[str], default_month: str) -> 
     month_a = col_a.selectbox("Mois A", options=months, index=max(0, len(months) - 2), key="compare_a")
     month_b = col_b.selectbox("Mois B", options=months, index=months.index(default_month), key="compare_b")
 
-    left = kpi.calculate_month_kpi(df, month_a).as_dict()
+    left  = kpi.calculate_month_kpi(df, month_a).as_dict()
     right = kpi.calculate_month_kpi(df, month_b).as_dict()
+
+    METRICS = [
+        ("total_ouverts",              "Demandes ouvertes",          ""),
+        ("total_fermes",               "Global traitées",            ""),
+        ("ouverts_et_fermes_meme_mois","Ouvertes ET fermées même mois",""),
+        ("delai_moyen_heures",         "Délai moyen",                " h"),
+        ("satisfaction_moyenne",       "Satisfaction globale",       " %"),
+        ("taux_participation",         "Taux de participation",      " %"),
+    ]
+
     rows = []
-    for metric in ["total_ouverts", "total_fermes", "ouverts_et_fermes_meme_mois", "delai_moyen_heures", "satisfaction_moyenne"]:
-        old = left[metric]
-        new = right[metric]
-        if old in [None, 0] or pd.isna(old) or new is None or pd.isna(new):
-            delta = None
+    for key, label, suffix in METRICS:
+        old = left.get(key)
+        new = right.get(key)
+        try:
+            old_f = float(old) if old is not None else None
+            new_f = float(new) if new is not None else None
+        except (TypeError, ValueError):
+            old_f = new_f = None
+
+        if old_f in (None, 0) or new_f is None:
+            delta_str = "—"
         else:
-            delta = (new - old) / old * 100
-        rows.append(
-            {
-                "Indicateur": metric,
-                month_a: compact(old),
-                month_b: compact(new),
-                "Variation": "Donnee indisponible" if delta is None else f"{delta:+.1f}%",
-            }
-        )
+            delta = (new_f - old_f) / old_f * 100
+            delta_str = f"{delta:+.1f}%"
+
+        def _disp(v, s):
+            if v is None:
+                return "Donnée indisponible"
+            try:
+                if pd.isna(v):
+                    return "Donnée indisponible"
+            except TypeError:
+                pass
+            if isinstance(v, float):
+                return f"{v:.2f}{s}"
+            return f"{v}{s}"
+
+        rows.append({
+            "Indicateur": label,
+            month_a: _disp(old, suffix),
+            month_b: _disp(new, suffix),
+            "Variation": delta_str,
+        })
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
 
 
 def show_exports(df: pd.DataFrame, mois: str) -> None:
     config = load_config()
     exports_dir = resolve_path(config.data.exports_dir) or Path("data/exports")
-    st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-    chart_card_title("Rapports mensuels", "Exports bases sur les donnees filtrees et le mois selectionne")
-    col1, col2 = st.columns(2)
-    if col1.button("Exporter le rapport PDF", use_container_width=True):
-        path = export_month_pdf(df, mois, exports_dir, config.company_name)
-        st.success(f"PDF genere: {path}")
-    if col2.button("Exporter le rapport Excel", use_container_width=True):
-        path = export_month_excel(df, mois, exports_dir)
-        st.success(f"Excel genere: {path}")
-    st.markdown("</div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        chart_card_title("Rapports mensuels", "Exports bases sur les donnees filtrees et le mois selectionne")
+        col1, col2 = st.columns(2)
+        if col1.button("Exporter le rapport PDF", use_container_width=True):
+            path = export_month_pdf(df, mois, exports_dir, config.company_name)
+            st.success(f"PDF genere: {path}")
+        if col2.button("Exporter le rapport Excel", use_container_width=True):
+            path = export_month_excel(df, mois, exports_dir)
+            st.success(f"Excel genere: {path}")
 
 
 def show_satisfaction_audit(df: pd.DataFrame, mois: str, sat: kpi.SatisfactionResult) -> None:
+    """Tableau de preuve de calcul — formules traçables, aucune valeur inventée."""
     responses = df.attrs.get("satisfaction_responses")
-    opened_count = len(kpi.filter_opened_month(df, mois))
-    st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-    chart_card_title("Audit du calcul satisfaction", "Preuve de calcul depuis les colonnes reelles du fichier enquete")
+    global_traites = kpi.calculate_month_kpi(df, mois).total_fermes or len(kpi.filter_opened_month(df, mois))
 
-    if responses is None or responses.empty:
-        st.warning("Aucun fichier enquete satisfaction n'est charge: aucune note n'est inventee.")
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
+    with st.container(border=True):
+        chart_card_title(
+            "Audit du calcul satisfaction",
+            "Preuve de calcul depuis les colonnes réelles du fichier enquête",
+        )
 
-    if "mois_enquete" in responses.columns and responses["mois_enquete"].notna().any():
-        scoped = responses[responses["mois_enquete"].eq(mois)].copy()
-        scope_label = f"reponses du mois {mois}"
-        if scoped.empty:
+        if responses is None or responses.empty:
+            st.warning("Aucun fichier enquête satisfaction chargé : aucune note n'est inventée.")
+            return
+
+        if "mois_enquete" in responses.columns and responses["mois_enquete"].notna().any():
+            scoped = responses[responses["mois_enquete"].eq(mois)].copy()
+            scope_label = f"réponses du mois {mois}"
+            if scoped.empty:
+                scoped = responses.copy()
+                scope_label = "fallback global : aucune réponse datée pour le mois"
+        else:
             scoped = responses.copy()
-            scope_label = "fallback moyenne globale: aucune reponse datee pour le mois"
-    else:
-        scoped = responses.copy()
-        scope_label = "fallback moyenne globale: date enquete absente ou inexploitable"
+            scope_label = "fallback global : date enquête absente ou inexploitable"
 
-    required = ["satisfaction_traitement", "communication_operateurs", "satisfaction_temps"]
-    valid_responses = scoped[required].apply(pd.to_numeric, errors="coerce").dropna(how="all")
-    sources = df.attrs.get("column_sources", {}).get("satisfaction", {})
-    rows = [
-        {
-            "KPI": "Satisfaction traitement",
-            "Colonne source": sources.get("satisfaction_traitement", "satisfaction_traitement"),
-            "Formule": "mean(colonne)",
-            "Valeur": fmt(sat.satisfaction_globale, " / 5"),
-        },
-        {
-            "KPI": "Communication",
-            "Colonne source": sources.get("communication_operateurs", "communication_operateurs"),
-            "Formule": "mean(colonne)",
-            "Valeur": fmt(sat.communication, " / 5"),
-        },
-        {
-            "KPI": "Temps de traitement",
-            "Colonne source": sources.get("satisfaction_temps", "satisfaction_temps"),
-            "Formule": "mean(colonne)",
-            "Valeur": fmt(sat.temps_percu, " / 5"),
-        },
-        {
-            "KPI": "Taux participation",
-            "Colonne source": "N reponses enquete / tickets ouverts",
-            "Formule": f"{len(valid_responses)} / {opened_count} * 100",
-            "Valeur": fmt(sat.taux_participation, " %"),
-        },
-    ]
-    st.caption(f"Perimetre utilise: {scope_label}. Reponses exploitees: {len(valid_responses)}.")
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-    if sat.rubrique_moins_satisfaisante:
-        st.caption(f"Point le plus bas calcule avec idxmin sur les 3 moyennes: {sat.rubrique_moins_satisfaisante}.")
-    st.markdown("</div>", unsafe_allow_html=True)
+        required = ["satisfaction_traitement", "communication_operateurs", "satisfaction_temps"]
+        valid_responses = scoped[required].apply(pd.to_numeric, errors="coerce").dropna(how="all")
+        nb = len(valid_responses)
+        sources = df.attrs.get("column_sources", {}).get("satisfaction", {})
+
+        # Calcul du taux combiné pour la preuve
+        toutes_notes = pd.concat([
+            valid_responses["satisfaction_traitement"].dropna(),
+            valid_responses["communication_operateurs"].dropna(),
+            valid_responses["satisfaction_temps"].dropna(),
+        ])
+        n_total = len(toutes_notes)
+        n_positifs = int((toutes_notes.round().isin([4, 5])).sum())
+
+        rows = [
+            {
+                "KPI": "Satisfaction globale",
+                "Colonne source": "3 rubriques combinées",
+                "Formule": f"(note≥4) combinées : {n_positifs} / {n_total}",
+                "Valeur": f"{sat.satisfaction_globale:.2f} %" if sat.satisfaction_globale is not None else "N/A",
+            },
+            {
+                "KPI": "Satisfaction traitement",
+                "Colonne source": sources.get("satisfaction_traitement", "satisfaction_traitement"),
+                "Formule": f"(note≥4) : {sat.detail_traitement.satisfait + sat.detail_traitement.tres_satisfait if sat.detail_traitement else 0} / {nb}",
+                "Valeur": f"{sat.detail_traitement.taux_satisfaction:.2f} %" if sat.detail_traitement and sat.detail_traitement.taux_satisfaction is not None else "N/A",
+            },
+            {
+                "KPI": "Communication",
+                "Colonne source": sources.get("communication_operateurs", "communication_operateurs"),
+                "Formule": f"(note≥4) : {sat.detail_communication.satisfait + sat.detail_communication.tres_satisfait if sat.detail_communication else 0} / {nb}",
+                "Valeur": f"{sat.detail_communication.taux_satisfaction:.2f} %" if sat.detail_communication and sat.detail_communication.taux_satisfaction is not None else "N/A",
+            },
+            {
+                "KPI": "Temps de traitement",
+                "Colonne source": sources.get("satisfaction_temps", "satisfaction_temps"),
+                "Formule": f"(note≥4) : {sat.detail_temps.satisfait + sat.detail_temps.tres_satisfait if sat.detail_temps else 0} / {nb}",
+                "Valeur": f"{sat.detail_temps.taux_satisfaction:.2f} %" if sat.detail_temps and sat.detail_temps.taux_satisfaction is not None else "N/A",
+            },
+            {
+                "KPI": "Taux de participation",
+                "Colonne source": "N réponses / global traitées",
+                "Formule": f"{nb} / {global_traites} * 100",
+                "Valeur": f"{sat.taux_participation:.2f} %" if sat.taux_participation is not None else "N/A",
+            },
+        ]
+        st.caption(f"Périmètre : {scope_label}. Réponses exploitées : {nb}.")
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        if sat.rubrique_moins_satisfaisante:
+            st.caption(f"Rubrique la moins satisfaisante (taux individuel min) : {sat.rubrique_moins_satisfaisante}.")
 
 
 def show_satisfaction_page(df: pd.DataFrame, mois: str) -> None:
     result = kpi.calculate_month_kpi(df, mois)
     sat = result.satisfaction
 
-    st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-    chart_card_title("Satisfaction enquete", "Calcul depuis le fichier enquete ASKit importe")
-    cols = st.columns(4)
-    cols[0].metric("Satisfaction traitement", fmt(sat.satisfaction_globale, " / 5"))
-    cols[1].metric("Communication", fmt(sat.communication, " / 5"))
-    cols[2].metric("Temps de traitement", fmt(sat.temps_percu, " / 5"))
-    cols[3].metric("Participation", fmt(sat.taux_participation, " %"))
-    if sat.rubrique_moins_satisfaisante:
-        st.caption(f"Rubrique la moins satisfaisante: {sat.rubrique_moins_satisfaisante}")
-    if sat.fallback_global:
-        st.warning("Moyenne globale utilisee: aucune date enquete exploitable pour le mois selectionne.")
-    st.markdown("</div>", unsafe_allow_html=True)
+    # ── KPI summary ──────────────────────────────────────
+    with st.container(border=True):
+        chart_card_title(
+            "Satisfaction enquête ASKit",
+            "Taux = (notes 4+5) / total réponses × 100  —  Source : fichier enquête importé",
+        )
+        if sat.fallback_global:
+            st.warning("Mode fallback : aucune date enquête exploitable pour le mois sélectionné.")
 
+        km1, km2, km3, km4 = st.columns(4)
+        km1.metric(
+            "Satisfaction globale",
+            f"{sat.satisfaction_globale:.2f} %" if sat.satisfaction_globale is not None else "N/A",
+            help="(satisfait + très satisfait) / total réponses combinées",
+        )
+        km2.metric(
+            "Taux de participation",
+            f"{sat.taux_participation:.2f} %" if sat.taux_participation is not None else "N/A",
+            help="nb répondants / global traitées × 100",
+        )
+        km3.metric("Répondants", str(sat.nombre_reponses))
+        km4.metric(
+            "Global traitées",
+            str(result.total_fermes) if result.total_fermes is not None else "N/A",
+            help="Tickets fermés dans le mois (dénominateur de la participation)",
+        )
+
+        if sat.rubrique_moins_satisfaisante:
+            st.markdown(
+                f'<div class="alert-orange">⚠️ Rubrique la moins satisfaisante : '
+                f'<strong>{sat.rubrique_moins_satisfaisante}</strong></div>',
+                unsafe_allow_html=True,
+            )
+
+    # ── Détail par rubrique (barres empilées) ────────────────
+    with st.container(border=True):
+        chart_card_title(
+            "Distribution par niveau — 3 rubriques",
+            "🟥 Très insatisfait  🟧 Plutôt insatisfait  🟨 Insatisfait  🟩 Satisfait  🟩→ Très satisfait",
+        )
+        for rubrique_label, detail, taux_attr in [
+            ("Satisfaction de traitement", sat.detail_traitement, sat.detail_traitement.taux_satisfaction if sat.detail_traitement else None),
+            ("Communication des opérateurs", sat.detail_communication, sat.detail_communication.taux_satisfaction if sat.detail_communication else None),
+            ("Satisfaction du temps de traitement", sat.detail_temps, sat.detail_temps.taux_satisfaction if sat.detail_temps else None),
+        ]:
+            taux_str = f"{taux_attr:.1f} %" if taux_attr is not None else "N/A"
+            col_lbl, col_bar = st.columns([1, 3])
+            col_lbl.markdown(
+                f'<div style="color:#e2e8f0;font-size:13px;font-weight:600;padding-top:16px">{rubrique_label}</div>'
+                f'<div style="color:#34d399;font-size:20px;font-weight:800">{taux_str}</div>',
+                unsafe_allow_html=True,
+            )
+            col_bar.plotly_chart(
+                rubrique_bar(detail, rubrique_label),
+                use_container_width=True,
+            )
+
+        # Légende
+        st.markdown(
+            "<div style='display:flex;gap:16px;margin-top:4px;font-size:11px;color:#64748b'>"
+            "<span>🟥 Très insatisfait</span>"
+            "<span>🟧 Plutôt insatisfait</span>"
+            "<span>🟨 Insatisfait</span>"
+            "<span style='color:#22c55e'>⬤ Satisfait</span>"
+            "<span style='color:#10b981'>⬤ Très satisfait</span>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+    # ── Audit de calcul + Graphique notes ──────────────────
     show_satisfaction_audit(df, mois, sat)
 
-    left, right = st.columns([1.05, 1.55])
-    with left:
-        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-        chart_card_title("Repartition des notes")
+    with st.container(border=True):
+        chart_card_title("Répartition des notes (traitement)")
         st.plotly_chart(satisfaction_donut(df, mois), use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    with right:
-        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-        chart_card_title("Trace des reponses")
-        responses = df.attrs.get("satisfaction_responses")
-        if responses is None or responses.empty:
-            st.info("Donnee indisponible: aucun fichier enquete charge.")
-        else:
-            display = responses.copy()
-            if "mois_enquete" in display.columns and display["mois_enquete"].notna().any():
-                scoped = display[display["mois_enquete"].eq(mois)]
-                if not scoped.empty:
-                    display = scoped
-            wanted = [
-                "ticket_id",
-                "mois_enquete",
-                "satisfaction_traitement",
-                "communication_operateurs",
-                "satisfaction_temps",
-            ]
-            available = [column for column in wanted if column in display.columns]
-            st.dataframe(display[available].head(20), use_container_width=True, hide_index=True, height=300)
-        st.markdown("</div>", unsafe_allow_html=True)
 
 
 def show_api_panel(mois: str) -> None:
@@ -1626,10 +2322,10 @@ def show_api_panel(mois: str) -> None:
             {"Endpoint": "GET /docs", "Role": "Documentation Swagger FastAPI"},
         ]
     )
-    st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-    chart_card_title("API REST", "Demarrer l'API avec: uvicorn api.main:app --reload")
-    st.dataframe(endpoints, use_container_width=True, hide_index=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        chart_card_title("API REST", "Demarrer l'API avec: uvicorn api.main:app --reload")
+        st.dataframe(endpoints, use_container_width=True, hide_index=True)
+
 
 
 def _legacy_main_unused() -> None:
@@ -1684,24 +2380,32 @@ def _legacy_main_unused() -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="KPI RSI Sagemcom", page_icon=":bar_chart:", layout="wide")
+    st.set_page_config(
+        page_title="RSI Sagemcom — Support IT",
+        page_icon="📊",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
     inject_css()
 
-    control_col, dashboard_col = st.columns([0.82, 2.9], gap="large")
-
-    with control_col:
+    # ── SIDEBAR: Flux-style navigation ──────────────────────────────
+    with st.sidebar:
         sidebar_brand()
         active_page = render_nav_buttons()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<div class="flux-nav-label">Import & Filtres</div>', unsafe_allow_html=True)
+
         df = None
         source_label = None
         load_error = None
+
         try:
             df, source_label = load_sidebar_dataset()
         except SchemaError as exc:
             st.error(
-                "Le fichier importe n'est pas reconnu comme un extrait des demandes ASKit. "
-                "Importe le rapport ASKit des demandes. Colonnes attendues: N ticket, "
-                "Beneficiaire, Enregistre le, Date de resolution, Sujet, Meta Statut, Localisation."
+                "Fichier non reconnu. Colonnes attendues: N ticket, "
+                "Enregistré le, Date de résolution, Sujet, Meta Statut, Localisation."
             )
             st.caption(str(exc))
             load_error = exc
@@ -1709,45 +2413,83 @@ def main() -> None:
             st.error(str(exc))
             load_error = exc
 
-        if df is None:
-            filtered = None
-            months = []
-            mois = ""
-        elif df.empty:
-            st.warning("Aucune donnee chargee.")
-            filtered = None
-            months = []
-            mois = ""
-        else:
+        filtered = None
+        months = []
+        mois = ""
+
+        if df is not None and not df.empty:
             filtered = apply_filters(df)
             months = kpi.available_months(filtered)
+            if not months:
+                st.warning("Aucun mois disponible apres filtrage.")
+                filtered = None
+                mois = ""
+            else:
+                mois = st.selectbox("📅 Mois de pilotage", options=months, index=len(months) - 1)
+        elif df is not None and df.empty:
+            st.warning("Aucune donnee chargee.")
 
-        if df is not None and not months:
-            st.warning("Aucun mois disponible apres filtrage.")
-            filtered = None
-            mois = ""
-        elif months:
-            mois = st.selectbox("Mois de pilotage", options=months, index=len(months) - 1)
-            show_sidebar_summary(filtered, mois)
+        # User card at bottom of sidebar
+        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        st.markdown(
+            """
+            <div class="flux-user-card" style="background:#1a1a2e; border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:12px; margin-top:8px;">
+                <div class="flux-user-avatar">R</div>
+                <div>
+                    <div class="flux-user-name">RSI Sagemcom</div>
+                    <div class="flux-user-role">Administrateur</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    with dashboard_col:
-        if filtered is None or not mois or source_label is None:
-            show_empty_state(load_error)
-        elif active_page == "dashboard":
-            page_header(active_page, mois)
-            show_dashboard(filtered, mois, source_label)
-        elif active_page == "analytics":
-            page_header(active_page, mois)
-            show_comparison(filtered, months, mois)
-        elif active_page == "satisfaction":
-            page_header(active_page, mois)
-            show_satisfaction_page(filtered, mois)
-        elif active_page == "reports":
-            page_header(active_page, mois)
-            show_exports(filtered, mois)
-        elif active_page == "api":
-            page_header(active_page, mois)
-            show_api_panel(mois)
+    # ── MAIN CONTENT AREA ───────────────────────────────────────────
+    st.markdown('<div style="padding: 20px 28px 40px 28px;">', unsafe_allow_html=True)
+
+    # Flux-style topbar
+    PAGE_LABELS = {
+        "dashboard": "Vue globale",
+        "analytics": "Analytics",
+        "satisfaction": "Satisfaction",
+        "reports": "Rapports & Exports",
+        "api": "API REST",
+    }
+    current_label = PAGE_LABELS.get(active_page, "Dashboard")
+    st.markdown(
+        f"""
+        <div class="flux-topbar">
+            <div class="flux-topbar-title">{current_label}</div>
+            <div class="flux-topbar-right">
+                <span class="flux-badge-green">● En ligne</span>
+                <span class="flux-badge">Engine v3.0</span>
+                {'<span class="flux-badge-green">✓ ' + str(len(months)) + ' mois chargés</span>' if months else ''}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Main page content
+    if filtered is None or not mois or source_label is None:
+        show_empty_state(load_error)
+    elif active_page == "dashboard":
+        page_header(active_page, mois)
+        show_dashboard(filtered, mois, source_label)
+    elif active_page == "analytics":
+        page_header(active_page, mois)
+        show_comparison(filtered, months, mois)
+    elif active_page == "satisfaction":
+        page_header(active_page, mois)
+        show_satisfaction_page(filtered, mois)
+    elif active_page == "reports":
+        page_header(active_page, mois)
+        show_exports(filtered, mois)
+    elif active_page == "api":
+        page_header(active_page, mois)
+        show_api_panel(mois)
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
