@@ -1,0 +1,13 @@
+company_name: "Sagemcom RSI"
+api_title: "RSI KPI API"
+
+data:
+  tickets_path: "data/input/ASKit - Report request enregistr*(29).csv"
+  satisfaction_path: "data/input/Askit - Request SST KRM enqu*.csv.gz"
+  employees_path: "data/input/Employ*.csv.gz"
+  exports_dir: "data/exports"
+
+thresholds:
+  anomaly_std_multiplier: 1.5
+  anomaly_window_months: 6
+  recurrent_requester_min: 5

@@ -1,0 +1,17 @@
+streamlit==1.37.1
+pandas==2.2.2
+plotly==5.23.0
+openpyxl==3.1.5
+xlrd==2.0.1
+fastapi==0.115.6
+uvicorn==0.34.0
+pyyaml==6.0.2
+reportlab==4.2.5
+pytest==8.3.4
+httpx==0.28.1
+streamlit-echarts==0.4.0
+slowapi==0.1.10
+python-jose==3.3.0
+passlib==1.7.4
+cryptography==43.0.0
+python-dotenv==1.0.0

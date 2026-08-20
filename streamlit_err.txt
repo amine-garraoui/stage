@@ -1,0 +1,22 @@
+2026-08-20 12:06:21,615 | INFO     | src.database.connection — Database schema initialised.
+2026-08-20 12:06:22.363 Uncaught app exception
+Traceback (most recent call last):
+  File "C:\Users\g801338\AppData\Local\Programs\Python\Python311\Lib\site-packages\streamlit\runtime\scriptrunner\exec_code.py", line 85, in exec_func_with_error_handling
+    result = func()
+             ^^^^^^
+  File "C:\Users\g801338\AppData\Local\Programs\Python\Python311\Lib\site-packages\streamlit\runtime\scriptrunner\script_runner.py", line 576, in code_to_exec
+    exec(code, module.__dict__)
+  File "C:\Users\g801338\Downloads\stage-mainn\main.py", line 36, in <module>
+    st.switch_page("app/pages/login.py")
+  File "C:\Users\g801338\AppData\Local\Programs\Python\Python311\Lib\site-packages\streamlit\runtime\metrics_util.py", line 408, in wrapped_func
+    result = non_optional_func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\g801338\AppData\Local\Programs\Python\Python311\Lib\site-packages\streamlit\commands\execution_control.py", line 212, in switch_page
+    raise StreamlitAPIException(
+streamlit.errors.StreamlitAPIException: Could not find page: `app/pages/login.py`. Must be the file path relative to the main script, from the directory: `stage-mainn`. Only the main app file and files in the `pages/` directory are supported.
+2026-08-20 12:13:36,574 | INFO     | src.database.connection — Database schema initialised.
+2026-08-20 12:13:40,114 | INFO     | src.database.connection — Database schema initialised.
+2026-08-20 12:15:54,465 | INFO     | src.database.connection — Database schema initialised.
+2026-08-20 12:15:54,565 | INFO     | src.database.connection — Database schema initialised.
+2026-08-20 12:33:00,088 | INFO     | src.database.connection — Database schema initialised.
+2026-08-20 12:33:00,144 | INFO     | src.database.connection — Database schema initialised.

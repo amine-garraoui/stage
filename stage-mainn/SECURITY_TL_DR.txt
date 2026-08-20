@@ -1,0 +1,104 @@
+================================================================================
+                        🔒 SÉCURITÉ - TL;DR (5 MIN)
+================================================================================
+
+AVANT VOTRE SOUTENANCE - FAIRE CECI MAINTENANT:
+
+1. GÉNÉRER CLÉ API
+   ===============
+   python -c "import secrets; print(secrets.token_urlsafe(32))"
+   
+   Copier le résultat (ex: AbCdEfGhIjKlMnOpQrStUvWxYz1234567890-_)
+
+2. CONFIGURER .env.local
+   ======================
+   PowerShell:
+   > Copy-Item ".env.example" ".env.local"
+   > $key = "AbCdEfGhIjKlMnOpQrStUvWxYz1234567890-_"  # Votre clé
+   > (Get-Content ".env.local") -replace "API_KEYS=.*", "API_KEYS=$key" | Set-Content ".env.local"
+
+3. DÉFINIR VARIABLE D'ENV
+   ======================
+   $env:API_KEYS = "AbCdEfGhIjKlMnOpQrStUvWxYz1234567890-_"
+
+4. VÉRIFIER QUE C'EST OK
+   ====================
+   ✅ Test 1: Sans clé = 401
+      curl http://localhost:8000/kpi/2026-06
+      
+   ✅ Test 2: Avec clé = KPI
+      curl -H "Authorization: Bearer AbCdEfGhIjKlMnOpQrStUvWxYz1234567890-_" http://localhost:8000/kpi/2026-06
+      
+   ✅ Test 3: Logs d'audit créés
+      cat data/audit.log
+
+5. PENDANT LA SOUTENANCE
+   ====================
+   Montrer ceci:
+   - "Regardez, sans clé c'est 401 Unauthorized" ← Sécurité!
+   - "Et les logs d'audit enregistrent tout" ← Traçabilité!
+   - "Le PDF ne contient pas de noms" ← Anonymisé!
+
+================================================================================
+                                FAITS CLÉS
+================================================================================
+
+Authentification:   ✅ HTTPBearer tokens (obligatoire sur tous les endpoints)
+Audit:              ✅ Tous les accès enregistrés dans data/audit.log
+Anonymisation:      ✅ Noms/emails/téléphones supprimés
+Rate Limiting:      ✅ Max 20-30 requêtes/minute
+SQL Injection:      ✅ N/A (on utilise pandas, pas SQL direct)
+
+================================================================================
+                          SI QUELQUE CHOSE EST CASSÉ
+================================================================================
+
+Problème 1: "ImportError: No module named cryptography"
+   → C'est OK! Ça va être installé bientôt. Ce n'est pas grave pour la démo.
+
+Problème 2: "API_KEYS n'est pas défini"
+   → Faire: $env:API_KEYS = "votre-clé-ici"
+
+Problème 3: "data/audit.log n'existe pas"
+   → C'est normal! Il sera créé après la première requête API.
+
+Problème 4: ".env.local n'existe pas"
+   → Faire: Copy-Item ".env.example" ".env.local"
+
+================================================================================
+                          QUESTIONS DE L'ENCADRANT
+================================================================================
+
+Q: Comment vous gérez les clés API?
+A: Variables d'environnement, jamais hardcodées. En production: Azure Key Vault.
+
+Q: Et si quelqu'un vole votre code?
+A: Ils ont besoin de la clé API ET de .encryption_key. Sans, c'est 401.
+
+Q: Les données perso sont où?
+A: Supprimées avant export. Les rapports = agrégés seulement (site/sujet).
+
+Q: Manque quoi pour la production?
+A: HTTPS/TLS, Entra AD, chiffrement optionnel. Base solide déjà en place.
+
+================================================================================
+                            VERSION RAPIDE (1 MIN)
+================================================================================
+
+$env:API_KEYS = (python -c "import secrets; print(secrets.token_urlsafe(32))")
+Copy-Item ".env.example" ".env.local"
+(Get-Content ".env.local") -replace "API_KEYS=.*", "API_KEYS=$env:API_KEYS" | Set-Content ".env.local"
+
+# Tester
+curl -H "Authorization: Bearer $env:API_KEYS" http://localhost:8000/kpi/2026-06
+
+# ✅ Terminé!
+
+================================================================================
+
+Voir aussi:
+  - SECURITY_CHECKLIST.md    (Checklist complète avant présentation)
+  - SECURITY_QUICK_START.md  (Guide détaillé 5-10 min)
+  - SECURITY.md              (Guide complet avec tous les détails)
+  
+Bonne chance! 🚀
